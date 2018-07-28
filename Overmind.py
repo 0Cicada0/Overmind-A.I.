@@ -493,7 +493,7 @@ class Overmind(sc2.BotAI):
 
     async def build_hydra(self):
         larvae = self.units(LARVA)
-        if self.can_afford(HYDRALISK) and larvae.exists and self.townhalls.amount > 2:
+        if self.can_afford(HYDRALISK) and larvae.exists:
             larva = larvae.random
             await self.do(larva.train(HYDRALISK))
 
@@ -588,7 +588,7 @@ class Overmind(sc2.BotAI):
 
     async def build_roach(self):
         larvae = self.units(LARVA)
-        if self.can_afford(ROACH) and larvae.exists and self.townhalls.amount > 2:
+        if self.can_afford(ROACH) and larvae.exists:
             larva = larvae.random
             await self.do(larva.train(ROACH))
 
