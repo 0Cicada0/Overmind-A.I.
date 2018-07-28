@@ -319,7 +319,7 @@ class Overmind(sc2.BotAI):
                     await self.build_zerglings()
             else:
                 await self.build_zerglings()
-        elif not self.units(LAIR).exists:
+        elif self.panic or self.emergency:
             await self.build_zerglings()
 
     async def build_muta(self):
