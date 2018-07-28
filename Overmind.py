@@ -311,7 +311,7 @@ class Overmind(sc2.BotAI):
 
     async def build_muta_ling(self):
         army_count = self.units(ROACH).amount | self.units(HYDRALISK).amount | self.units(OVERSEER).amount | self.units(MUTALISK).amount | self.units(ZERGLING).amount | self.units(BANELING).amount
-        if self.units(SPIRE).exists or self.emergency:
+        if self.units(SPIRE).exists or self.already_pending(SPIRE) or self.emergency or self.panic:
             if army_count > 1:
                 if (self.units(MUTALISK).amount / army_count) < 0.5 and self.units(SPIRE).ready.exists:
                     await self.build_muta()
@@ -319,8 +319,6 @@ class Overmind(sc2.BotAI):
                     await self.build_zerglings()
             else:
                 await self.build_zerglings()
-        elif self.panic or self.emergency:
-            await self.build_zerglings()
 
     async def build_muta(self):
         larvae = self.units(LARVA)
