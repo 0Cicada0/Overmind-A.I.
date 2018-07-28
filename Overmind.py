@@ -188,7 +188,7 @@ class Overmind(sc2.BotAI):
         #print(vars(enemyUnitData))
         self.enemy_supply = sum([unit._type_data._proto.food_required for unit in EnemyUnits])
         self.my_supply = sum([unit._type_data._proto.food_required for unit in army_units])
-        if self.enemy_supply > (self.my_supply * 1.4) and not self.expanding and not self.emergency:
+        if self.enemy_supply > (self.my_supply * 1.4) and not self.expanding and not self.emergency and not self.get_game_time() > 180:
             self.panic = True
             self.stop_worker = True
             #print("Panic")
