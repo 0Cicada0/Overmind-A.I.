@@ -72,7 +72,7 @@ class Overmind(sc2.BotAI):
         self.injectQueenLimit = hqa
         if iteration == 0:
             await self.chat_send("(glhf)")
-        if self.get_game_time() > 600:
+        if self.get_game_time() > 750:
             self.late_game = True
         self.remember_enemy_units()
         self.remember_friendly_units()
