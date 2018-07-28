@@ -108,8 +108,8 @@ class Overmind(sc2.BotAI):
         await self.check_voidray()
         if self.get_game_time() > 60:
             await self.scout()
-        #print(self.stop_worker)
-        #print(self.stop_army)
+        # print(self.stop_worker)
+        # print(self.stop_army)
         #print(self.strategy)
 
         #await self.queen_micro()
@@ -135,7 +135,6 @@ class Overmind(sc2.BotAI):
             await self.spire()
             await self.build_muta_ling()
             await self.upgrade_flyer()
-
 
         elif self.strategy == "roach/hydra":
             await self.build_extractor()
@@ -188,7 +187,7 @@ class Overmind(sc2.BotAI):
         #print(vars(enemyUnitData))
         self.enemy_supply = sum([unit._type_data._proto.food_required for unit in EnemyUnits])
         self.my_supply = sum([unit._type_data._proto.food_required for unit in army_units])
-        if self.enemy_supply > (self.my_supply * 1.4) and not self.expanding and not self.emergency and not self.get_game_time() > 180:
+        if self.enemy_supply > (self.my_supply * 1.5) and not self.expanding and not self.emergency and not self.get_game_time() > 180:
             self.panic = True
             self.stop_worker = True
             #print("Panic")
@@ -449,19 +448,26 @@ class Overmind(sc2.BotAI):
             await self.do(hive(RALLY_BUILDING, rally_location))
 
     async def build_roach_hydra(self):
-        army_count = self.units(ROACH).amount | self.units(HYDRALISK).amount | self.units(OVERSEER).amount | self.units(MUTALISK).amount | self.units(ZERGLING).amount | self.units(BANELING).amount
-        if army_count > 0.5:
-            if (self.units(ROACH).amount / army_count) < 0.5 and self.units(ROACHWARREN).ready.exists:
-                await self.build_roach()
-        elif army_count > 0.5:
-            if (self.units(HYDRALISK).amount / army_count) < 0.5 and self.units(HYDRALISKDEN).ready.exists:
+        #print("building army")
+        army_count = self.units(ROACH).amount | self.units(HYDRALISK).amount | self.units(OVERSEER).amount | self.units(MUTALISK).amount | self.units(ZERGLING).amount | self.units(BANELING).amount #| self.units(QUEEN).amount
+        if army_count > 1:
+            #print("checking hydra")
+            if (self.units(HYDRALISK).amount / army_count) <= 0.5 and self.units(HYDRALISKDEN).ready.exists:
+                #print("building hydra")
                 await self.build_hydra()
+            elif (self.units(ROACH).amount / army_count) <= 0.5 and self.units(ROACHWARREN).ready.exists:
+                #print("building roach")
+                await self.build_roach ()
+            else:
+                #print("building ling")
+                await self.build_zerglings()
         else:
+            #print("building ling")
             await self.build_zerglings()
 
     async def build_zerglings(self):
         larvae = self.units(LARVA)
-        if self.can_afford(ZERGLING) and larvae.exists and not self.stop_army:
+        if self.can_afford(ZERGLING) and larvae.exists and not self.stop_army and self.units(ZERGLING).amount < 40:
             larva = larvae.random
             await self.do(larva.train(ZERGLING))
 
@@ -1134,5 +1140,5 @@ class Overmind(sc2.BotAI):
 #     #Human(Race.Zerg),
 #     Bot(Race.Zerg, Overmind()),
 #     #Bot(Race.Protoss, CannonLoverBot())
-#     Computer(Race.Terran, Difficulty.VeryHard)  
+#     Computer(Race.Zerg, Difficulty.VeryHard)
 # ], realtime=True)
