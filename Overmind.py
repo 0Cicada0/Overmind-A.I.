@@ -1132,9 +1132,9 @@ class Overmind(sc2.BotAI):
             for unit in units:
                 await self.do(unit(order, target=target))
 
-run_game(maps.get("MechDepotLE"), [
-    #Human(Race.Zerg),
-    Bot(Race.Zerg, Overmind()),
-    #Bot(Race.Protoss, CannonLoverBot())
-    Computer(Race.Terran, Difficulty.VeryHard)  
-], realtime=True)
+# run_game(maps.get("MechDepotLE"), [
+#     #Human(Race.Zerg),
+#     Bot(Race.Zerg, Overmind()),
+#     #Bot(Race.Protoss, CannonLoverBot())
+#     Computer(Race.Terran, Difficulty.VeryHard)  
+# ], realtime=True)
