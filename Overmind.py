@@ -157,7 +157,44 @@ class Overmind(sc2.BotAI):
             await self.build_hydra()
 
         await self.execute_order_queue()
-    #async def late_game(self):
+        
+    async def adrenal_glands(self):
+        if self.vespene >= 100:
+            sp = self.units(SPAWNINGPOOL).ready
+            if sp.exists and self.minerals >= 100:
+                await self.do(sp.first(RESEARCH_ZERGLINGADRENALGLANDS))
+
+    async def blords(self):
+        army_count = self.units(BROODLORD).amount | self.units(CORRUPTOR).amount
+        broodlordsTotal = self.units(BROODLORD).amount + self.units(BROODLORDCOCOON).amount
+        for c in self.units(CORRUPTOR).ready:
+            if (broodlordsTotal/army_count) < 0.4:
+                if self.can_afford(BROODLORD):
+                    await self.do(c(MORPHTOBROODLORD_BROODLORD))
+
+    async def build_corrupters(self):
+        larvae = self.units(LARVA)
+        if self.can_afford(CORRUPTOR) and larvae.exists:
+            larva = larvae.random
+            await self.do(larva.train(CORRUPTOR))
+
+    async def greater_spire(self):
+        if self.units(HIVE).exists and self.units(GREATERSPIRE).amount + self.already_pending(GREATERSPIRE) < 1:
+            if not self.units(GREATERSPIRE).exists and self.units(SPIRE).ready.idle.exists and self.already_pending(GREATERSPIRE) < 1:
+                # morph spire to greater spire
+                if self.can_afford(GREATERSPIRE):
+                    await self.do(self.units(SPIRE).ready.idle.random(UPGRADETOGREATERSPIRE_GREATERSPIRE))
+
+    async def build_late_game(self):
+        if not self.stop_army:
+            print("building")
+            if self.units(ZERGLING).amount < 60:
+                print("building lings")
+                await self.build_zerglings()
+            else:
+                await self.build_corrupters()
+            print("building corruptors")
+            
     async def check_voidray(self):
         enemy_units = self.remembered_enemy_units
         if enemy_units(VOIDRAY).amount > 2 and enemy_units(VOIDRAY).amount > enemy_units(STALKER).amount:
