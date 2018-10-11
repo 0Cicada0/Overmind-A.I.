@@ -4,7 +4,7 @@ from sc2.data import race_gas, race_worker, race_townhalls, ActionResult, Attrib
 
 import sc2 # pip install sc2
 from sc2 import Race, Difficulty, run_game, maps
-from sc2.constants import * # for autocomplete
+from sc2.constants import *
 from sc2.ids.unit_typeid import *
 from sc2.ids.ability_id import *
 from sc2.position import Point2, Point3
@@ -13,629 +13,275 @@ from sc2.helpers import ControlGroup
 from sc2.player import Bot, Computer, Human
 import math
 import random
+from sc2.client import Client
 #from cannon_lover_bot import CannonLoverBot
+#from Terran_Bot import SentdeBot
 
 class Overmind(sc2.BotAI):
     def __init__(self):
-        self.ITERATIONS_PER_MINUTE = 2970
-        self.max_workers = 80
-        self.mboost_started = False
-        self.maug_started = False
-        self.grecon_started = False
-        self.gspines_started = False
-        self.order_queue = []
-        self.expand_every = 1.25 * 60 # Second
-        self.burrow_started = False
-        self.creepTargetDistance = 15 # was 10
-        self.creepTargetCountsAsReachedDistance = 10 # was 25
+        self.droneUp = True
+        self.buildArmy = False
+        self.expand = False
+        self.buildMore = True
+        self.expandTime = 3
+        self.combinedActions = []
+        self.gases = 0.5
+        self.injectInterval = 50
+        self.creepTargetDistance = 15  # was 10
+        self.creepTargetCountsAsReachedDistance = 10  # was 25
         self.creepSpreadInterval = 10
-        self.stopMakingNewTumorsWhenAtCoverage = 0.8 # stops queens from putting down new tumors and save up transfuse energy
-        self.defendRangeToTownhalls = 40
-        self.hive_tech = False
-        self.defending = False
-        self.stop_worker = False
-        self.stop_army = False
-        self.strategy = "Unsure"
-        self.stop_roaches = False
-        self.stop_hydra = False
+        self.stopMakingNewTumorsWhenAtCoverage = 0.5  # stops queens from putting down new tumors and save up transfuse energy
         self.attacking = False
-        self.ovy_scout = False
-        self.units_to_ignore = [DRONE, SCV, PROBE, EGG, LARVA, OVERLORD, OVERSEER, OBSERVER, BROODLING, INTERCEPTOR, MEDIVAC, CREEPTUMOR, CREEPTUMORBURROWED, CREEPTUMORQUEEN, CREEPTUMORMISSILE]
-        self.Terran = [BARRACKS, COMMANDCENTER, ORBITALCOMMAND, MARINE, SCV, SUPPLYDEPOT, MARAUDER, REACTOR, TECHLAB]
-        self.Zerg = [HATCHERY, LAIR, HIVE, SPAWNINGPOOL, DRONE, ZERGLING, QUEEN, OVERLORD]
-        self.Protoss = [NEXUS, PYLON, GATEWAY, CYBERNETICSCORE, STALKER, ZEALOT, PHOTONCANNON, PROBE]
-        self.remembered_enemy_units = []
-        self.remembered_enemy_units_by_tag = {}
-        self.remembered_friendly_units_by_tag = {}
-        self.enemy_race = None
-        self.queensAssignedHatcheries = {} # contains a list of queen: hatchery assignments (for injects)
-        self.injectInterval = 100
-        self.defending_queens = False
-        self.stop_expand = False
-        self.attack_supply = 193
-        self.cannon_rush = False
-        self.move = False
-        self.emergency = False
-        self.late_game = False
-        self.not_attack_units = [PROBE, SCV, DRONE, OVERLORD, QUEEN, LARVA, EGG]
-        self.enemy_supply = 200
-        self.panic = False
-        self.voidray = False
-        self.expanding = False
-        self.ov1_scout = False
-        self.ov2_scout = False
-        self.ov3_scout = False
+        self.defending = False
+        self.attackSupply = 190
+        self.hqs = [HATCHERY, LAIR, HIVE, COMMANDCENTER, ORBITALCOMMAND, PLANETARYFORTRESS, NEXUS]
+        self.ovyScout = False
+        self.scouter = None
+        self.units_to_ignore = [DRONE, SCV, PROBE, EGG, LARVA, OVERLORD, OVERSEER, OBSERVER, BROODLING, INTERCEPTOR,
+                                MEDIVAC, CREEPTUMOR, CREEPTUMORBURROWED, CREEPTUMORQUEEN, CREEPTUMORMISSILE, EGG, QUEEN]
+        self.enemies = {}
+        self.exactExpansionLocations = []
+        self.workersAway = []
 
     async def on_step(self, iteration):
+        self.armyUnits = self.units(ROACH).ready | self.units(ZERGLING).ready | self.units(HYDRALISK).ready | self.units(BROODLORD).ready | self.units(BANELING).ready
         self.iteration = iteration
-        hqa = self.townhalls.amount
-        self.injectQueenLimit = hqa
-        if iteration == 0:
+        # print(iteration)
+        if iteration == 1:
             await self.chat_send("(glhf)")
-        if self.get_game_time() > 850:
-            self.late_game = True
-        self.remember_enemy_units()
-        self.remember_friendly_units()
+            await self.findExactExpansionLocations()
 
+        await self.armyScout()
+        await self.rememberEnemies()
+        await self.scout()
+        await self.burrowMicro()
         await self.distribute_workers()
-        await self.ov_scout()
-        await self.build_overlords()
-        await self.expand()
-        await self.build_workers()
-        await self.find_race()
-        await self.find_strategy()
-        await self.doCreepSpread()
-        await self.build_spawning_pool()    #Builds spawning pool for zerglings
-        await self.upgrade_hatch()  #Upgrades hatch into lair
-        await self.upgrade_lair()
-        await self.build_evochamber()
-        await self.build_queens()
-        self.assignQueen(self.injectQueenLimit)
-        await self.doQueenInjects(iteration)
-        await self.set_rally_hatchery()
-        await self.set_rally_lair()
-        await self.set_rally_hive()
-        await self.attack_rally_location()
-        await self.defend_queens()
-        await self.defend()
-        await self.metabolic_boost()
-        await self.attack()
-        await self.check_cannon()
-        await self.check_emergency()
-        await self.check_enemy_supply()
-        await self.build_infestation()
-        #await self.pull_the_bios()
-        await self.check_voidray()
-        if self.get_game_time() > 60:
-            await self.scout()
-        # print(self.stop_worker)
-        # print(self.stop_army)
-        #print(self.strategy)
 
-        #await self.queen_micro()
-        
-        if self.strategy == "hydra/ling/bane":
-            await self.build_extractor()
-            await self.upgrade_hydra_speed()
-            await self.upgrade_hydra_range()
-            await self.build_hydra()
-            await self.hydra_den()
-            await self.build_hydra_ling()
-            await self.build_banenest()
-            await self.build_banes()
-            await self.upgrade()
-            await self.rolly_polly()
+        if iteration % 5 == 0:
+            if not self.townhalls.exists:
+                await self.chat_send("(gg)")
+                await self._client.leave()
+            await self.attack()
+            await self.defend()
+            await self.morphStuff()
+            await self.zergUpgrades()
+            await self.buildStuff()
+            await self.checkExpand()
+            await self.getGases()
+            await self.buildExtractor()
+            await self.getLair()
+            await self.buildQueens()
+            await self.doQueenInjects(iteration)
+            await self.attackRally()
+            self.assignQueen()
+            await self.doCreepSpread()
+            await self.zergUpgrades()
+            await self.getOverseer()
+            await self.moveOverseer()
+            await self.makeChangeling()
+            await self.moveChangeling()
+            await self.ovScout()
+            await self.makeUpgrades()
+            await self.buildBanes()
+            await self.checkSupplies()
+            await self.workerDefence()
 
-        elif self.strategy == "muta/ling/bane":
-            await self.build_extractor()
-            await self.build_banenest()
-            await self.build_banes()
-            await self.rolly_polly()
-            await self.upgrade()
-            await self.spire()
-            await self.build_muta_ling()
-            await self.upgrade_flyer()
+        await self.do_actions(self.combinedActions)
+        self.combinedActions = []
 
-        elif self.strategy == "roach/hydra":
-            await self.build_extractor()
-            await self.roach_warren()
-            await self.roach_micro()
-            await self.research_burrow()
-            await self.upgrade()
-            await self.upgrade_roach()
-            await self.upgrade_hydra_speed()
-            await self.upgrade_hydra_range()
-            await self.hydra_den()
-            await self.build_roach_hydra()
-
-        elif self.strategy == "hydra":
-            await self.build_extractor()
-            await self.upgrade()
-            await self.upgrade_hydra_speed()
-            await self.upgrade_hydra_range()
-            await self.hydra_den()
-            await self.build_hydra()
-
-        await self.execute_order_queue()
-        
-    async def adrenal_glands(self):
-        if self.vespene >= 100:
-            sp = self.units(SPAWNINGPOOL).ready
-            if sp.exists and self.minerals >= 100:
-                await self.do(sp.first(RESEARCH_ZERGLINGADRENALGLANDS))
-
-    async def blords(self):
-        army_count = self.units(BROODLORD).amount | self.units(CORRUPTOR).amount
-        broodlordsTotal = self.units(BROODLORD).amount + self.units(BROODLORDCOCOON).amount
-        for c in self.units(CORRUPTOR).ready:
-            if (broodlordsTotal/army_count) < 0.4:
-                if self.can_afford(BROODLORD):
-                    await self.do(c(MORPHTOBROODLORD_BROODLORD))
-
-    async def build_corrupters(self):
-        larvae = self.units(LARVA)
-        if self.can_afford(CORRUPTOR) and larvae.exists:
-            larva = larvae.random
-            await self.do(larva.train(CORRUPTOR))
-
-    async def greater_spire(self):
-        if self.units(HIVE).exists and self.units(GREATERSPIRE).amount + self.already_pending(GREATERSPIRE) < 1:
-            if not self.units(GREATERSPIRE).exists and self.units(SPIRE).ready.idle.exists and self.already_pending(GREATERSPIRE) < 1:
-                # morph spire to greater spire
-                if self.can_afford(GREATERSPIRE):
-                    await self.do(self.units(SPIRE).ready.idle.random(UPGRADETOGREATERSPIRE_GREATERSPIRE))
-
-    async def build_late_game(self):
-        if not self.stop_army:
-            print("building")
-            if self.units(ZERGLING).amount < 60:
-                print("building lings")
-                await self.build_zerglings()
-            else:
-                await self.build_corrupters()
-            print("building corruptors")
-            
-    async def check_voidray(self):
-        enemy_units = self.remembered_enemy_units
-        if enemy_units(VOIDRAY).amount > 2 and enemy_units(VOIDRAY).amount > enemy_units(STALKER).amount:
-            self.strategy = "hydra"
-        
-    async def pull_the_bios(self):
-        hatch =  self.townhalls.ready
-        nearby_enemies = self.known_enemy_units.not_structure.filter(lambda unit: unit.type_id not in self.units_to_ignore).closer_than(30, hatch)
-        if nearby_enemies.amount >= 1 and nearby_enemies.amount <= 15 and self.workers.exists:
-            workers = self.workers.prefer_close_to(nearby_enemies.first).take(nearby_enemies.amount*2, False)
-
-            for worker in workers:
-                await self.do(worker.attack(nearby_enemies.closer_than(20, worker).closest_to(worker).position))    
-
-    async def build_infestation(self):
-        hq = self.townhalls.random
-        if self.units(LAIR).exists:
-            if self.can_afford(INFESTATIONPIT) and not self.already_pending(INFESTATIONPIT) and not self.units(INFESTATIONPIT).exists:
-                if self.late_game:
-                    await self.build(INFESTATIONPIT, near=hq.position.towards(self.game_info.map_center, 8))
-
-    async def check_enemy_supply(self):
-        army_units = self.units(ROACH).ready | self.units(HYDRALISK).ready | self.units(OVERSEER).ready | self.units(MUTALISK).ready | self.units(ZERGLING).ready | self.units(BANELING).ready
-        self.enemy_supply = 0
-        EnemyUnits = self.remembered_enemy_units.not_structure.filter(lambda x:x.type_id not in self.not_attack_units)
-        #print(enemyUnitData)
-        #print(vars(enemyUnitData))
-        self.enemy_supply = sum([unit._type_data._proto.food_required for unit in EnemyUnits])
-        self.my_supply = sum([unit._type_data._proto.food_required for unit in army_units])
-        if self.enemy_supply > (self.my_supply * 1.5) and not self.expanding and not self.emergency and not self.get_game_time() > 180:
-            self.panic = True
-            self.stop_worker = True
-            #print("Panic")
-        elif self.enemy_supply <= self.my_supply and self.panic:
-            self.panic = False
-            self.stop_worker = False
-
-
-    async def check_emergency(self):
-        army_count = self.units(ROACH).amount | self.units(HYDRALISK).amount | self.units(OVERSEER).amount | self.units(MUTALISK).amount | self.units(ZERGLING).amount | self.units(BANELING).amount
+    ###FUNCTIONS###
+    async def workerDefence(self):
         enemiesCloseToTh = None
-        for th in self.townhalls:
-            enemiesCloseToTh = self.known_enemy_units.closer_than(self.defendRangeToTownhalls, th.position)
-        if not enemiesCloseToTh and self.emergency:
-            self.stop_worker = False
-            self.emergency = False
-        if enemiesCloseToTh.amount > army_count and not self.expanding and not self.panic:
-            self.stop_worker = True
-            self.emergency = True
-
-    async def check_cannon(self):
-        for th in self.townhalls:
-            if self.known_enemy_structures.closer_than(15, th.position) and not self.cannon_rush and self.get_game_time() < 240:
-                self.stop_expand = True
-                self.stop_worker = True
-                self.attack_supply = 50
-                self.cannon_rush = True
-                print(self.attack_supply)
-                print(self.stop_worker)
-                await self.chat_send("(probe) (pylon) (cannon)")
-                for h in self.townhalls:
-                    if CANCEL in await self.get_available_abilities(h):
-                        await self.do(h(CANCEL))
-
-            #elif self.known_enemy_structures.closer_than(30, th.position) and self.cannon_rush:
-            #    self.stop_expand = False
-            #    self.stop_worker = False
-            #    self.attack_supply = 193
-            #    self.cannon_rush = False
-
-    async def scout(self):
-        scout = None
-
-        # Check if we already have a scout (a worker with PATROL order)
-        for worker in self.workers:
-            if self.has_order([PATROL], worker):
-                scout = worker
-
-        if not scout and self.get_game_time() < 180:
-            random_exp_location = random.choice(self.enemy_start_locations)
-            scout = self.workers.closest_to(self.start_location)
-
-            if not scout:
-                return
-
-            await self.order(scout, PATROL, random_exp_location)
-            return
-
-        # If we don't have a scout, select one, and order it to move to random exp
-        if not scout:
-            random_exp_location = random.choice(list(self.expansion_locations.keys()))
-            scout = self.workers.closest_to(self.start_location)
-
-            if not scout:
-                return
-
-            await self.order(scout, PATROL, random_exp_location)
-            return
-
-        # Basic avoidance: If enemy is too close, go to map center
-        nearby_enemy_units = self.known_enemy_units.filter(lambda unit: unit.type_id not in self.units_to_ignore).closer_than(10, scout)
-        if nearby_enemy_units.exists:
-            await self.order(scout, PATROL, self.game_info.map_center)
-            return
-
-        # We're close enough, so change target
-        target = sc2.position.Point2((scout.orders[0].target.x, scout.orders[0].target.y))
-        if scout.distance_to(target) < 10:
-            random_exp_location = random.choice(list(self.expansion_locations.keys()))
-            await self.order(scout, PATROL, random_exp_location)
-            return
-
-    async def attack(self):
-        army_units = self.units(ROACH).ready | self.units(HYDRALISK).ready | self.units(OVERSEER).ready | self.units(MUTALISK).ready | self.units(ZERGLING).ready | self.units(BANELING).ready
-        army_idle = army_units.idle
-        for unit in army_idle:
-            if self.supply_used > self.attack_supply and not self.defending and not self.cannon_rush:
-                await self.do(unit.attack(self.find_target(self.state).position))
-                self.hive_tech = True
-                self.attacking = True
-            elif self.cannon_rush:
-                if not self.move:
-                    await self.do(unit.move(self.game_info.map_center))
-                    self.move = True
-                    self.attacking = True
-                if self.move:
-                    for unit in army_idle:
-                        random_exp_location = random.choice(list(self.expansion_locations.keys()))
-                        await self.do(unit.attack(random_exp_location))
-
-            elif self.supply_used < (self.attack_supply - 50):
-                self.attacking = False
-
-    async def upgrade_flyer(self):
-        if self.units(SPIRE).exists:
-            evochamber = self.units(SPIRE).first
-            if self.strategy == "muta/ling/bane":
-            # Only if we're not upgrading anything yet
-                if evochamber.noqueue:
-            # Go through each weapon, armor and shield upgrade and check if we can research it, and if so, do it
-                    for upgrade_level in range(1, 4):
-                        upgrade_armor_id = getattr(sc2.constants, "RESEARCH_ZERGFLYERATTACKLEVEL" + str(upgrade_level))
-                        upgrade_missle_id = getattr(sc2.constants, "RESEARCH_ZERGFLYERARMORLEVEL" + str(upgrade_level))
-                        if await self.has_ability(upgrade_missle_id, evochamber):
-                            if self.can_afford(upgrade_missle_id):
-                                await self.do(evochamber(upgrade_missle_id))
-                        elif await self.has_ability(upgrade_armor_id, evochamber):
-                            if self.can_afford(upgrade_armor_id):
-                                await self.do(evochamber(upgrade_armor_id))
-
-    async def build_muta_ling(self):
-        army_count = self.units(ROACH).amount | self.units(HYDRALISK).amount | self.units(OVERSEER).amount | self.units(MUTALISK).amount | self.units(ZERGLING).amount | self.units(BANELING).amount
-        if self.units(SPIRE).exists or self.already_pending(SPIRE) or self.emergency or self.panic:
-            if army_count > 1:
-                if (self.units(MUTALISK).amount / army_count) < 0.5 and self.units(SPIRE).ready.exists:
-                    await self.build_muta()
-                else:
-                    await self.build_zerglings()
-            else:
-                await self.build_zerglings()
-
-    async def build_muta(self):
-        larvae = self.units(LARVA)
-        if self.can_afford(SPIRE) and larvae.exists and self.townhalls.amount > 2:
-            larva = larvae.random
-            await self.do(larva.train(MUTALISK))
-
-    async def spire(self):
-        hqe = self.townhalls.ready
-        if hqe.exists:
-            hq = self.townhalls.random
-        if (self.units(LAIR).exists or self.units(HIVE).exists) and not self.already_pending(SPIRE) and not self.units(SPIRE).exists:         
-            if self.can_afford(SPIRE):
-                await self.build(SPIRE, near=hq.position.towards(self.game_info.map_center, 8))
-
-    async def rolly_polly(self):
-        if self.vespene >= 100:
-            bn = self.units(BANELINGNEST).ready
-            if bn.exists and self.minerals >= 100 and self.units(LAIR).exists:
-                await self.do(bn.first(RESEARCH_CENTRIFUGALHOOKS))
-
-    async def build_banes(self):
-        for ling in self.units(ZERGLING).ready:
-            if self.units(ZERGLING).amount > 1 and self.units(BANELINGNEST).exists and not self.attacking and not self.defending:
-                if (self.units(BANELING).amount / self.units(ZERGLING).amount) < 0.5:
-                    await self.do(ling(MORPHZERGLINGTOBANELING_BANELING))
-
-    async def build_banenest(self):
-        hqr = self.townhalls.ready
-        if hqr.exists:
-            hq = self.townhalls.random
-        if self.units(SPAWNINGPOOL).exists and not self.already_pending(BANELINGNEST) and not self.units(BANELINGNEST).exists:         
-            if self.can_afford(BANELINGNEST):
-                await self.build(BANELINGNEST, near=hq.position.towards(self.game_info.map_center, 8))
-
-    async def build_hydra_ling(self):
-        army_count = self.units(ROACH).amount | self.units(HYDRALISK).amount | self.units(OVERSEER).amount | self.units(MUTALISK).amount | self.units(ZERGLING).amount | self.units(BANELING).amount
-        if self.units(HYDRALISKDEN).exists or self.emergency:
-            if army_count > 1:
-                if (self.units(HYDRALISK).amount / army_count) < 0.2 and self.units(HYDRALISKDEN).ready.exists:
-                    await self.build_hydra()
-                else:
-                    await self.build_zerglings()
-            else:
-                await self.build_zerglings()
-        elif self.panic or self.emergency: 
-            await self.build_zerglings()
-    async def metabolic_boost(self):
-        if self.vespene >= 100:
-            sp = self.units(SPAWNINGPOOL).ready
-            if sp.exists and self.minerals >= 100 and not self.mboost_started:
-                await self.do(sp.first(RESEARCH_ZERGLINGMETABOLICBOOST))
-                if not sp.noqueue:
-                    self.mboost_started = True
-
-    async def defend(self):
-        army_units = self.units(ROACH).ready | self.units(HYDRALISK).ready | self.units(OVERSEER).ready | self.units(MUTALISK).ready | self.units(ZERGLING).ready | self.units(BANELING).ready
-        enemiesCloseToTh = None
-        for th in self.townhalls:
-            enemiesCloseToTh = self.known_enemy_units.closer_than(self.defendRangeToTownhalls, th.position)
-        if enemiesCloseToTh and not self.cannon_rush and not self.attacking:
-            for unit in army_units:
-                await self.do(unit.attack(enemiesCloseToTh.random.position))
-                self.defending = True
-        elif not enemiesCloseToTh:
-            self.defending = False
-
-    async def attack_rally_location(self):
-        army_units = self.units(ROACH).ready | self.units(HYDRALISK).ready | self.units(OVERSEER).ready | self.units(MUTALISK).ready | self.units(ZERGLING).ready | self.units(BANELING).ready        
-        for unit in army_units:
-            if not self.attacking and not self.defending:
-                attack_location = self.get_rally_location()
-                await self.do(unit.attack(attack_location))
-
-    async def hasLair(self):
-        if(self.units(LAIR).amount > 0):
-            return True
-        morphingYet = False
-        for h in self.units(HATCHERY):
-            if CANCEL_MORPHLAIR in await self.get_available_abilities(h):
-                morphingYet = True
-                break
-        if morphingYet:
-            return True
-        return False
-
-    async def queen_micro(self):
-        if self.units(QUEEN).exists and self.defending_queens:
-            queen = self.units(QUEEN).filter(lambda x:x.energy >= 50)
-            transfuseTargets = self.units.filter(lambda x: x.type_id in [QUEEN] and (x.health_max - x.health >= 125 or x.health / x.health_max < 1/4))
-            if transfuseTargets != None:
-                for q in queen:
-                    transfuseTarget = transfuseTargets.closest_to(q)
-                    if transfuseTarget.distance_to(q) < 7: # replace with general queen transfuse range
-                        abilities = await self.get_available_abilities(q)
-                        if AbilityId.TRANSFUSION_TRANSFUSION in abilities and self.can_afford(TRANSFUSION_TRANSFUSION):
-                            transfuseTargets = transfuseTargets.filter(lambda x:x.tag not in targetsBeingTransfusedTags)
-                            await self.do(q(TRANSFUSION_TRANSFUSION, transfuseTarget))
-
-    async def defend_queens(self):
-        army_units = self.units(QUEEN).ready
-        enemiesCloseToTh = None
-        for th in self.townhalls:
+        for th in self.townhalls.ready:
             enemiesCloseToTh = self.known_enemy_units.closer_than(15, th.position)
-        if not enemiesCloseToTh:
-            self.defending_queens = False
-        elif enemiesCloseToTh and not self.cannon_rush:
-            for unit in army_units:
-                await self.do(unit.attack(enemiesCloseToTh.random.position))
-                self.defending_queens = True
+        if enemiesCloseToTh:
+            if enemiesCloseToTh.amount > 2:
+                if self.workers.amount > enemiesCloseToTh.amount:
+                    for worker in self.workers.closer_than(15, enemiesCloseToTh.random.position):
+                        target = enemiesCloseToTh.random
+                        await self.do(worker.attack(target.position))
+                        self.workersAway.append(worker)
+        for h in self.townhalls:
+            for worker in self.workersAway:
+                w = self.workers.find_by_tag(worker)
+                if w:
+                    if w.distance_to(h) > 30:
+                        if worker.tag in self.workersAway:
+                            self.workersAway.remove(w.tag)
+                            await self.do(w.move(self.start_location))
 
-    async def set_rally_hatchery(self):
+    async def armyScout(self):
+        if self.iteration % 1800 == 0:
+        # if self.get_game_time() % 60 == 0:
+            if self.units(ZERGLING).exists:
+                roach = self.units(ZERGLING)
+                if self.known_enemy_structures.filter(lambda unit: unit.type_id in self.hqs):
+                    target = self.known_enemy_structures.filter(lambda unit: unit.type_id in self.hqs).closest_to(
+                    self.game_info.map_center).position
+                else:
+                    target = self.townhalls.random.position
+                await self.do(roach.random.attack(target))
 
-        rally_location = self.get_rally_location()
-        for hatch in self.units(HATCHERY).ready:
-            await self.do(hatch(RALLY_BUILDING, rally_location))
+    async def morphStuff(self):
+        if self.units(LARVA).exists:
+            for larva in self.units(LARVA):
+                if self.supply_left < 10 and self.already_pending(OVERLORD) < 2 and (self.droneUp or self.buildArmy):
+                    await self.morphZerg(OVERLORD)
+                elif self.droneUp and self.units(DRONE).amount + self.already_pending(DRONE) < 80 and self.units(DRONE).amount + self.already_pending(DRONE) < 22 * self.townhalls.amount:
+                    await self.morphZerg(DRONE)
+                elif self.buildArmy or self.units(DRONE).amount + self.already_pending(DRONE) >= 80 or self.units(DRONE).amount + self.already_pending(DRONE) >= 22 * self.townhalls.amount:
+                    if self.units(SPAWNINGPOOL).exists:
+                        if self.units(HYDRALISKDEN).exists:
+                            if(self.units(ZERGLING).amount + self.already_pending(ZERGLING)) + (self.units(BANELING).amount + self.units(BANELINGCOCOON).amount) > (self.units(HYDRALISK).amount + self.already_pending(HYDRALISK)) * 3:
+                                await self.morphZerg(HYDRALISK)
+                            else:
+                                await self.morphZerg(ZERGLING)
+                        else:
+                            await self.morphZerg(ZERGLING)
 
-    async def set_rally_lair(self):
+    async def morphZerg(self, unit):
+        larva = self.units(LARVA).random
+        if self.can_afford(unit):
+            self.combinedActions.append(larva.train(unit))
 
-        rally_location = self.get_rally_location()
-        for lair in self.units(LAIR).ready:
-            await self.do(lair(RALLY_BUILDING, rally_location))
+    async def buildStuff(self):
+        if self.townhalls.exists:
+            if self.buildMore:
+                if not self.units(SPAWNINGPOOL).exists:
+                    await self.buildZerg(SPAWNINGPOOL)
+                # if self.units(SPAWNINGPOOL).exists and not self.units(ROACHWARREN).exists:
+                #     await self.buildZerg(ROACHWARREN)
+                if self.units(SPAWNINGPOOL).exists and not self.units(BANELINGNEST).exists:
+                    await self.buildZerg(BANELINGNEST)
+                if self.units(LAIR).exists and not self.units(HYDRALISKDEN).exists:
+                    await self.buildZerg(HYDRALISKDEN)
+                if self.units(EVOLUTIONCHAMBER).amount + self.already_pending(EVOLUTIONCHAMBER) < 2 and self.townhalls.amount > 1 and self.units(BANELINGNEST).exists:
+                    await self.buildZerg(EVOLUTIONCHAMBER)
 
-    async def set_rally_hive(self):
-
-        rally_location = self.get_rally_location()
-        for hive in self.units(HIVE).ready:
-            await self.do(hive(RALLY_BUILDING, rally_location))
-
-    async def build_roach_hydra(self):
-        #print("building army")
-        army_count = self.units(ROACH).amount | self.units(HYDRALISK).amount | self.units(OVERSEER).amount | self.units(MUTALISK).amount | self.units(ZERGLING).amount | self.units(BANELING).amount #| self.units(QUEEN).amount
-        if army_count > 1:
-            #print("checking hydra")
-            if (self.units(HYDRALISK).amount / army_count) <= 0.5 and self.units(HYDRALISKDEN).ready.exists:
-                #print("building hydra")
-                await self.build_hydra()
-            elif (self.units(ROACH).amount / army_count) <= 0.5 and self.units(ROACHWARREN).ready.exists:
-                #print("building roach")
-                await self.build_roach ()
-            else:
-                #print("building ling")
-                await self.build_zerglings()
-        else:
-            #print("building ling")
-            await self.build_zerglings()
-
-    async def build_zerglings(self):
-        larvae = self.units(LARVA)
-        if self.can_afford(ZERGLING) and larvae.exists and not self.stop_army and self.units(ZERGLING).amount < 40:
-            larva = larvae.random
-            await self.do(larva.train(ZERGLING))
-
-    async def upgrade_hydra_speed(self):
-        hd = self.units(HYDRALISKDEN).ready
-        if not self.maug_started and hd.noqueue:
-            if self.vespene >= 100:
-                if hd.exists and self.minerals >= 100:
-                    await self.do(hd.first(RESEARCH_MUSCULARAUGMENTS))
-                    if not hd.noqueue:
-                        self.maug_started = True
-    
-    async def upgrade_hydra_range(self):
-        hd = self.units(HYDRALISKDEN).ready
-        if not self.gspines_started and hd.noqueue:
-            if self.vespene >= 100:
-                if hd.exists and self.minerals >= 100:
-                    await self.do(hd.first(RESEARCH_GROOVEDSPINES))
-                    if not hd.noqueue:
-                        self.gspines_started = True
-
-    async def hydra_den(self):
-        hqe = self.townhalls.ready
-        if hqe.exists:
+    async def buildZerg(self, building):
+        if self.townhalls.exists:
             hq = self.townhalls.random
-        if (self.units(LAIR).exists or self.units(HIVE).exists) and not self.already_pending(HYDRALISKDEN) and not self.units(HYDRALISKDEN).exists:         
-            if self.can_afford(HYDRALISKDEN):
-                await self.build(HYDRALISKDEN, near=hq.position.towards(self.game_info.map_center, 8))
+            if self.can_afford(building):
+                if not self.already_pending(building):
+                    await self.build(building, near=hq.position.towards(self.game_info.map_center, 8))
 
-    async def build_hydra(self):
-        larvae = self.units(LARVA)
-        if self.can_afford(HYDRALISK) and larvae.exists:
-            larva = larvae.random
-            await self.do(larva.train(HYDRALISK))
+    async def makeUpgrades(self):
+        if self.buildMore:
+            if self.units(SPAWNINGPOOL).exists:
+                if await self.has_ability(RESEARCH_ZERGLINGMETABOLICBOOST, self.units(SPAWNINGPOOL).first):
+                    await self.doUpgrades(RESEARCH_ZERGLINGMETABOLICBOOST, SPAWNINGPOOL)
+            if self.units(HYDRALISKDEN).exists:
+                if await self.has_ability(RESEARCH_GROOVEDSPINES, self.units(HYDRALISKDEN).first):
+                    await self.doUpgrades(RESEARCH_GROOVEDSPINES, HYDRALISKDEN)
+            if self.units(HYDRALISKDEN).exists:
+                if await self.has_ability(RESEARCH_MUSCULARAUGMENTS, self.units(HYDRALISKDEN).first):
+                    await self.doUpgrades(RESEARCH_MUSCULARAUGMENTS, HYDRALISKDEN)
+            if self.units(HATCHERY).exists:
+                if await self.has_ability(RESEARCH_BURROW, self.units(HATCHERY).first):
+                    await self.doUpgrades(RESEARCH_BURROW, HATCHERY)
+            if self.units(BANELINGNEST).exists:
+                if await self.has_ability(RESEARCH_CENTRIFUGALHOOKS, self.units(BANELINGNEST).first):
+                    await self.doUpgrades(RESEARCH_CENTRIFUGALHOOKS, BANELINGNEST)
 
-    async def upgrade_roach(self):
-        rw = self.units(ROACHWARREN).ready
-        if not self.grecon_started and (self.units(LAIR).exists or self.units(HIVE).exists) and not self.already_pending(LAIR) and rw.noqueue:
-            if self.vespene >= 100:
-                if rw.exists and self.minerals >= 100:
-                    await self.do(rw.first(RESEARCH_GLIALREGENERATION))
-                    if not rw.noqueue: 
-                        self.grecon_started = True
+    async def buildBanes(self):
+        if self.units(HYDRALISKDEN).exists or self.buildArmy:
+            for ling in self.units(ZERGLING).ready:
+                if not self.known_enemy_units.closer_than(30, ling.position):
+                    if self.units(BANELINGNEST).exists:
+                        if self.units(BANELING).amount + self.units(BANELINGCOCOON).amount <= self.units(ZERGLING).amount:
+                            self.combinedActions.append(ling(MORPHZERGLINGTOBANELING_BANELING))
 
-    async def upgrade(self):
-        if self.units(EVOLUTIONCHAMBER).exists:
-            evochamber = self.units(EVOLUTIONCHAMBER).first
-            if self.strategy == "muta/ling/bane":
-            # Only if we're not upgrading anything yet
-                if evochamber.noqueue:
-            # Go through each weapon, armor and shield upgrade and check if we can research it, and if so, do it
-                    for upgrade_level in range(1, 4):
-                        upgrade_armor_id = getattr(sc2.constants, "RESEARCH_ZERGGROUNDARMORLEVEL" + str(upgrade_level))
-                        upgrade_missle_id = getattr(sc2.constants, "RESEARCH_ZERGMELEEWEAPONSLEVEL" + str(upgrade_level))
-                        if await self.has_ability(upgrade_missle_id, evochamber):
-                            if self.can_afford(upgrade_missle_id):
-                                await self.do(evochamber(upgrade_missle_id))
-                        elif await self.has_ability(upgrade_armor_id, evochamber):
-                            if self.can_afford(upgrade_armor_id):
-                                await self.do(evochamber(upgrade_armor_id))
+    async def doUpgrades(self, upgrade, building):
+        if self.units(building).exists:
+            b = self.units(building).first
+            if b.noqueue:
+                if await self.has_ability(upgrade, b):
+                    if self.can_afford(upgrade):
+                        self.combinedActions.append(b(upgrade))
+    # async def roachSpeed(self):
+    #     if self.buildMore:
+    #         if self.units(ROACHWARREN).exists:
+    #             rw = self.units(ROACHWARREN).first
+    #             if rw.noqueue:
+    #                 if (self.units(LAIR).exists or self.units(HIVE).exists) and not self.already_pending(LAIR):
+    #                     if await self.has_ability(RESEARCH_GLIALREGENERATION, rw):
+    #                         if self.can_afford(RESEARCH_GLIALREGENERATION):
+    #                             self.combinedActions.append(rw(RESEARCH_GLIALREGENERATION))
 
-            elif self.strategy == "hydra/ling/bane":
-                if evochamber.noqueue:
-                    for upgrade_level in range(1, 4):
-                        upgrade_armor_id = getattr(sc2.constants, "RESEARCH_ZERGGROUNDARMORLEVEL" + str(upgrade_level))
-                        upgrade_missle_id = getattr(sc2.constants, "RESEARCH_ZERGMISSILEWEAPONSLEVEL" + str(upgrade_level))
-                        upgrade_melee_id = getattr(sc2.constants, "RESEARCH_ZERGMELEEWEAPONSLEVEL" + str(upgrade_level))
-                        if await self.has_ability(upgrade_missle_id, evochamber):
-                            if self.can_afford(upgrade_missle_id):
-                                await self.do(evochamber(upgrade_missle_id))
-                        elif await self.has_ability(upgrade_armor_id, evochamber):
-                            if self.can_afford(upgrade_armor_id):
-                                await self.do(evochamber(upgrade_armor_id))
-                        elif await self.has_ability(upgrade_melee_id, evochamber):
-                            if self.can_afford(upgrade_melee_id):
-                                await self.do(evochamber(upgrade_melee_id))
- 
-            if self.strategy == "roach/hydra" or self.strategy == "hydra":
-            # Only if we're not upgrading anything yet
-                if evochamber.noqueue:
-            # Go through each weapon, armor and shield upgrade and check if we can research it, and if so, do it
-                    for upgrade_level in range(1, 4):
-                        upgrade_armor_id = getattr(sc2.constants, "RESEARCH_ZERGGROUNDARMORLEVEL" + str(upgrade_level))
-                        upgrade_missle_id = getattr(sc2.constants, "RESEARCH_ZERGMISSILEWEAPONSLEVEL" + str(upgrade_level))
-                        if await self.has_ability(upgrade_missle_id, evochamber):
-                            if self.can_afford(upgrade_missle_id):
-                                await self.do(evochamber(upgrade_missle_id))
-                        elif await self.has_ability(upgrade_armor_id, evochamber):
-                            if self.can_afford(upgrade_armor_id):
-                                await self.do(evochamber(upgrade_armor_id))
+    async def checkExpand(self):
+        if self.get_game_time() / 60 > 9:
+            self.expandTime = 3.5
+        expand_every = self.expandTime * 60
+        prefered_base_count = 2 + int(math.floor(self.get_game_time() / expand_every))
+        current_base_count = self.townhalls.amount
+        if self.buildArmy:
+            prefered_base_count = 0
 
-    async def research_burrow(self):
-        #print(self.burrow_started)
-        hatch = self.units(HATCHERY).ready
-        if not self.burrow_started and hatch.noqueue:
-            if hatch.exists and self.vespene >= 100:
-                if self.minerals >= 100:
-                    await self.do(hatch.first(RESEARCH_BURROW))
-                    if not hatch.noqueue:
-                        self.burrow_started = True
+        if self.minerals > 900:
+            prefered_base_count += 1
 
-    async def roach_micro(self):
-        for roach in self.units(ROACH):
-            # burrow when low hp
-            if roach.health / roach.health_max < 5/10:
-                abilities = await self.get_available_abilities(roach)
-                if AbilityId.BURROWDOWN_ROACH in abilities and self.can_afford(BURROWDOWN_ROACH):
-                    await self.do(roach(BURROWDOWN_ROACH))
+        if prefered_base_count > current_base_count and current_base_count < (len(self.expansion_locations.keys()) - ((len(self.expansion_locations.keys()) / 2) - 2)):
+            self.expand = True
+            self.droneUp = False
+            self.buildMore = False
 
-        for roach in self.units(ROACHBURROWED):
-            if 9/10 <= roach.health / roach.health_max <= 2 and roach.is_burrowed:
-                abilities = await self.get_available_abilities(roach)
-                # print(abilities)
-                if AbilityId.BURROWUP_ROACH in abilities and self.can_afford(BURROWUP_ROACH):
-                    await self.do(roach(BURROWUP_ROACH))
+        if not self.already_pending(HATCHERY):
+            if self.expand:
+                if self.minerals >= 300:
+                    location = await self.get_next_expansion()
+                    await self.build(HATCHERY, near=location, max_distance=10, random_alternative=False,
+                                     placement_step=1)
 
-    async def roach_warren(self):
-        hqe = self.townhalls.ready
-        if hqe.exists:
-            hq = self.townhalls.random
-        if self.units(SPAWNINGPOOL).exists and not self.already_pending(ROACHWARREN) and not self.units(ROACHWARREN).exists:         
-            if self.can_afford(ROACHWARREN):
-                await self.build(ROACHWARREN, near=hq.position.towards(self.game_info.map_center, 8))
+        if (prefered_base_count <= current_base_count or self.already_pending(HATCHERY)) and self.expand:
+            self.expand = False
+            self.droneUp = True
+            self.buildMore = True
 
-    async def build_roach(self):
-        larvae = self.units(LARVA)
-        if self.can_afford(ROACH) and larvae.exists:
-            larva = larvae.random
-            await self.do(larva.train(ROACH))
+    async def buildExtractor(self):
+        if self.get_game_time() > 120:
+            if self.townhalls.exists:
+                hq = self.townhalls.random
+                if self.buildMore:
+                    vaspenes = self.state.vespene_geyser.closer_than(15.0, hq)
+                    if (self.units(EXTRACTOR).amount / (self.townhalls.amount * self.gases)) < 1:
+                        for vaspene in vaspenes:
+                            if not self.can_afford(EXTRACTOR):
+                                break
+                            worker = self.select_build_worker(vaspene.position)
+                            if worker is None:
+                                break
+                            if not self.units(EXTRACTOR).closer_than(1.0, vaspene).exists:
+                                if not self.already_pending(EXTRACTOR):
+                                    self.combinedActions.append(worker.build(EXTRACTOR, vaspene))
 
-    def assignQueen(self, maxAmountInjectQueens=5):
+    async def getGases(self):
+        if self.get_game_time() > 180:
+            if self.minerals > 0 and self.vespene > 0:
+                if (self.minerals / self.vespene) >= 3 and self.gases <= 2:
+                    self.gases += 0.25
+                elif (self.vespene / self.minerals) >= 3 and self.gases >= 0.5:
+                    self.gases += -0.25
+
+    async def getLair(self):
+        if self.buildMore:
+            if self.units(HATCHERY).idle.exists:
+                hq = self.units(HATCHERY).idle.random
+                if self.units(SPAWNINGPOOL).ready.exists and not await self.hasLair():
+                    if not self.units(HIVE).exists or self.units(LAIR).exists:
+                        if self.can_afford(LAIR):
+                            self.combinedActions.append(hq.build(LAIR))
+
+    async def buildQueens(self):
+        if self.buildMore:
+            if self.townhalls.exists:
+                for hq in self.townhalls.noqueue.ready:
+                    if self.units(SPAWNINGPOOL).ready.exists:
+                        if self.units(QUEEN).amount < (self.townhalls.amount * 1.2):
+                            if self.can_afford(QUEEN) and self.units(QUEEN).amount < 10:
+                                self.combinedActions.append(hq.train(QUEEN))
+
+    def assignQueen(self):
+        maxAmountInjectQueens = self.townhalls.amount
         # # list of all alive queens and bases, will be used for injecting
         if not hasattr(self, "queensAssignedHatcheries"):
             self.queensAssignedHatcheries = {}
@@ -643,22 +289,22 @@ class Overmind(sc2.BotAI):
         if maxAmountInjectQueens == 0:
             self.queensAssignedHatcheries = {}
 
-        # if queen is done, move it to the closest hatch/lair/hive that doesnt have a queen assigned
-        queensNoInjectPartner = self.units(QUEEN).filter(lambda q: q.tag not in self.queensAssignedHatcheries.keys())
-        basesNoInjectPartner = self.townhalls.filter(lambda h: h.tag not in self.queensAssignedHatcheries.values() and h.build_progress > 0.8)
+        queensNoInjectPartner = self.units(QUEEN).filter(
+            lambda q: q.tag not in self.queensAssignedHatcheries.keys())
+        basesNoInjectPartner = self.townhalls.filter(
+            lambda h: h.tag not in self.queensAssignedHatcheries.values() and h.build_progress > 0.8)
 
-        for queen in queensNoInjectPartner:                          
+        for queen in queensNoInjectPartner:
             if basesNoInjectPartner.amount == 0:
                 break
             closestBase = basesNoInjectPartner.closest_to(queen)
             self.queensAssignedHatcheries[queen.tag] = closestBase.tag
             basesNoInjectPartner = basesNoInjectPartner - [closestBase]
-            break # else one hatch gets assigned twice
-
+            break  # else one hatch gets assigned twice
 
     async def doQueenInjects(self, iteration):
         # list of all alive queens and bases, will be used for injecting
-        aliveQueenTags = [queen.tag for queen in self.units(QUEEN)] # list of numbers (tags / unit IDs)
+        aliveQueenTags = [queen.tag for queen in self.units(QUEEN)]  # list of numbers (tags / unit IDs)
         aliveBasesTags = [base.tag for base in self.townhalls]
 
         # make queens inject if they have 25 or more energy
@@ -667,7 +313,7 @@ class Overmind(sc2.BotAI):
         if hasattr(self, "queensAssignedHatcheries"):
             for queenTag, hatchTag in self.queensAssignedHatcheries.items():
                 # queen is no longer alive
-                if queenTag not in aliveQueenTags: 
+                if queenTag not in aliveQueenTags:
                     toRemoveTags.append(queenTag)
                     continue
                 # hatchery / lair / hive is no longer alive
@@ -675,122 +321,67 @@ class Overmind(sc2.BotAI):
                     toRemoveTags.append(queenTag)
                     continue
                 # queen and base are alive, try to inject if queen has 25+ energy
-                queen = self.units(QUEEN).find_by_tag(queenTag)            
-                hatch = self.townhalls.find_by_tag(hatchTag)            
+                queen = self.units(QUEEN).find_by_tag(queenTag)
+                hatch = self.townhalls.find_by_tag(hatchTag)
                 if hatch.is_ready:
-                    if queen.energy >= 25 and queen.is_idle and not hatch.has_buff(QUEENSPAWNLARVATIMER) and not self.defending_queens:
-                        await self.do(queen(EFFECT_INJECTLARVA, hatch))
+                    if queen.energy >= 25 and queen.is_idle and not hatch.has_buff(QUEENSPAWNLARVATIMER):
+                        self.combinedActions.append(queen(EFFECT_INJECTLARVA, hatch))
                 else:
-                    if iteration % self.injectInterval == 0 and queen.is_idle and queen.position.distance_to(hatch.position) > 10 and not self.defending_queens:
-                        await self.do(queen(AbilityId.MOVE, hatch.position.to2))
+                    if iteration % self.injectInterval == 0 and queen.is_idle and queen.position.distance_to(
+                            hatch.position) > 10:
+                        self.combinedActions.append(queen(AbilityId.MOVE, hatch.position.to2))
 
             # clear queen tags (in case queen died or hatch got destroyed) from the dictionary outside the iteration loop
             for tag in toRemoveTags:
                 self.queensAssignedHatcheries.pop(tag)
 
-    async def build_queens(self):
-        hqe = self.townhalls.ready
-        if hqe.exists:
-            hq = self.townhalls.first
-        if self.units(SPAWNINGPOOL).ready.exists:
-            if self.units(QUEEN).amount < (((self.units(HATCHERY).amount) + (self.units(LAIR).amount) + (self.units(HIVE).amount)) * 1.25) and hq.is_ready and hq.noqueue:
-                if self.can_afford(QUEEN) and not self.already_pending(QUEEN) and self.units(QUEEN).amount < 10:
-                    await self.do(hq.train(QUEEN))
 
-    async def build_extractor(self):
-        if self.townhalls.exists:
-            hq = self.townhalls.random
-        hqa = self.townhalls.amount
-        
-        if (self.strategy == "roach/hydra" or self.strategy == "hydra/ling/bane" or self.strategy == "hydra") and self.townhalls.exists:
-            vaspenes = self.state.vespene_geyser.closer_than(15.0, hq)
-            if hqa < 6:
-                if not self.already_pending(EXTRACTOR) and (self.units(EXTRACTOR).amount / (self.townhalls.amount * 1.25)) < 1:
-                    for vaspene in vaspenes:
-                        if not self.can_afford(EXTRACTOR):
-                            break
-                        worker = self.select_build_worker(vaspene.position)
-                        if worker is None:
-                            break
-                        if not self.units(EXTRACTOR).closer_than(1.0, vaspene).exists:
-                            await self.do(worker.build(EXTRACTOR, vaspene))
-            elif hqa > 5:
-                if not self.already_pending(EXTRACTOR):
-                    for vaspene in vaspenes:
-                        if not self.can_afford(EXTRACTOR):
-                            break
-                        worker = self.select_build_worker(vaspene.position)
-                        if worker is None:
-                            break
-                        if not self.units(EXTRACTOR).closer_than(1.0, vaspene).exists:
-                            await self.do(worker.build(EXTRACTOR, vaspene))
+    async def attackRally(self):
+        if not self.attacking and not self.defending:
+            attack_location = self.get_rally_location()
+            for unit in self.armyUnits.idle:
+                if unit.distance_to(attack_location) > 8:
+                    self.combinedActions.append(unit.attack(attack_location))
 
-        elif self.strategy == "muta/ling/bane" and self.townhalls.exists:
-            vaspenes = self.state.vespene_geyser.closer_than(15.0, hq)
-            if not self.already_pending(EXTRACTOR):
-                    for vaspene in vaspenes:
-                        if not self.can_afford(EXTRACTOR):
-                            break
-                        worker = self.select_build_worker(vaspene.position)
-                        if worker is None:
-                            break
-                        if not self.units(EXTRACTOR).closer_than(1.0, vaspene).exists:
-                            await self.do(worker.build(EXTRACTOR, vaspene))
+    async def attack(self):
+        if not self.defending:
+            if self.supply_used < self.attackSupply - 20:
+                self.attacking = False
+            if self.supply_used > self.attackSupply and self.attacking:
+                self.attacking = True
+                for unit in self.armyUnits.idle:
+                    self.combinedActions.append(unit.attack(self.find_target(self.state).position))
+            elif self.supply_used > self.attackSupply:
+                self.attacking = True
+                for unit in self.armyUnits:
+                    self.combinedActions.append(unit.attack(self.find_target(self.state).position))
 
-    async def build_evochamber(self):
-        hqe = self.townhalls.ready
-        if hqe.exists:
-            hq = self.townhalls.random
-        if self.units(LAIR).exists or self.units(HIVE).exists:
-            if self.can_afford(EVOLUTIONCHAMBER) and self.already_pending(EVOLUTIONCHAMBER) < 2 and self.units(EVOLUTIONCHAMBER).amount < 2:
-                await self.build(EVOLUTIONCHAMBER, near=hq.position.towards(self.game_info.map_center, 8))
-
-    async def build_spawning_pool(self):
-        hqe = self.townhalls.ready
-        if hqe.exists:
-            hq = self.townhalls.random
-        if not (self.units(SPAWNINGPOOL).exists or self.already_pending(SPAWNINGPOOL)):
-            if self.can_afford(SPAWNINGPOOL) and not self.stop_worker:
-                await self.build(SPAWNINGPOOL, near=hq.position.towards(self.game_info.map_center, 8))
-
-    async def upgrade_hatch(self):
-        hqe = self.townhalls.ready
-        if hqe.exists:
-            hq = self.townhalls.random
-        if self.units(SPAWNINGPOOL).ready.exists and not await self.hasLair() and not self.units(HIVE).exists and self.units(HATCHERY).exists:
-            if self.can_afford(GHOST):
-                await self.do(hq.build(LAIR))
-
-    async def upgrade_lair(self):
-        hqe = self.townhalls.ready
-        if hqe.exists:
-            hq = self.townhalls.random
-        if self.units(LAIR).ready.exists and not self.units(HIVE).exists and not self.already_pending(HIVE):
-            if self.can_afford(THOR):
-                await self.do(hq.build(HIVE))
-                
     async def updateCreepCoverage(self, stepSize=None):
         if stepSize is None:
             stepSize = self.creepTargetDistance
         ability = self._game_data.abilities[ZERGBUILD_CREEPTUMOR.value]
 
         positions = [Point2((x, y)) \
-        for x in range(self._game_info.playable_area[0]+stepSize, self._game_info.playable_area[0] + self._game_info.playable_area[2]-stepSize, stepSize) \
-        for y in range(self._game_info.playable_area[1]+stepSize, self._game_info.playable_area[1] + self._game_info.playable_area[3]-stepSize, stepSize)]
+                     for x in range(self._game_info.playable_area[0] + stepSize,
+                                    self._game_info.playable_area[0] + self._game_info.playable_area[2] - stepSize,
+                                    stepSize) \
+                     for y in range(self._game_info.playable_area[1] + stepSize,
+                                    self._game_info.playable_area[1] + self._game_info.playable_area[3] - stepSize,
+                                    stepSize)]
 
         validPlacements = await self._client.query_building_placement(ability, positions)
         successResults = [
-            ActionResult.Success, # tumor can be placed there, so there must be creep
-            ActionResult.CantBuildLocationInvalid, # location is used up by another building or doodad,
-            ActionResult.CantBuildTooFarFromCreepSource, # - just outside of range of creep            
-            # ActionResult.CantSeeBuildLocation - no vision here      
-            ]
+            ActionResult.Success,  # tumor can be placed there, so there must be creep
+            ActionResult.CantBuildLocationInvalid,  # location is used up by another building or doodad,
+            ActionResult.CantBuildTooFarFromCreepSource,  # - just outside of range of creep
+            # ActionResult.CantSeeBuildLocation - no vision here
+        ]
         # self.positionsWithCreep = [p for index, p in enumerate(positions) if validPlacements[index] in successResults]
         self.positionsWithCreep = [p for valid, p in zip(validPlacements, positions) if valid in successResults]
-        self.positionsWithoutCreep = [p for index, p in enumerate(positions) if validPlacements[index] not in successResults]
+        self.positionsWithoutCreep = [p for index, p in enumerate(positions) if
+                                      validPlacements[index] not in successResults]
         self.positionsWithoutCreep = [p for valid, p in zip(validPlacements, positions) if valid not in successResults]
         return self.positionsWithCreep, self.positionsWithoutCreep
-
 
     async def doCreepSpread(self):
         # only use queens that are not assigned to do larva injects
@@ -801,9 +392,12 @@ class Overmind(sc2.BotAI):
 
         # gather all queens that are not assigned for injecting and have 25+ energy
         if hasattr(self, "queensAssignedHatcheries"):
-            unassignedQueens = self.units(QUEEN).filter(lambda q: (q.tag not in self.queensAssignedHatcheries and q.energy >= 50) and (q.is_idle or len(q.orders) == 1 and q.orders[0].ability.id in [AbilityId.MOVE]))
+            unassignedQueens = self.units(QUEEN).filter(
+                lambda q: (q.tag not in self.queensAssignedHatcheries and q.energy >= 25 or q.energy >= 50) and (
+                            q.is_idle or len(q.orders) == 1 and q.orders[0].ability.id in [AbilityId.MOVE]))
         else:
-            unassignedQueens = self.units(QUEEN).filter(lambda q: q.energy >= 50 and (q.is_idle or len(q.orders) == 1 and q.orders[0].ability.id in [AbilityId.MOVE]))
+            unassignedQueens = self.units(QUEEN).filter(lambda q: q.energy >= 25 and (
+                        q.is_idle or len(q.orders) == 1 and q.orders[0].ability.id in [AbilityId.MOVE]))
 
         # update creep coverage data and points where creep still needs to go
         if not hasattr(self, "positionsWithCreep") or self.iteration % self.creepSpreadInterval * 10 == 0:
@@ -814,14 +408,23 @@ class Overmind(sc2.BotAI):
 
         # filter out points that have already tumors / bases near them
         if hasattr(self, "positionsWithoutCreep"):
-            self.positionsWithoutCreep = [x for x in self.positionsWithoutCreep if (allTumors | self.townhalls).closer_than(self.creepTargetCountsAsReachedDistance, x).amount < 1 or (allTumors | self.townhalls).closer_than(self.creepTargetCountsAsReachedDistance + 10, x).amount < 5] # have to set this to some values or creep tumors will clump up in corners trying to get to a point they cant reach
+            self.positionsWithoutCreep = [x for x in self.positionsWithoutCreep if
+                                          (allTumors | self.townhalls).closer_than(
+                                              self.creepTargetCountsAsReachedDistance, x).amount < 1 or (
+                                                      allTumors | self.townhalls).closer_than(
+                                              self.creepTargetCountsAsReachedDistance + 10,
+                                              x).amount < 5]  # have to set this to some values or creep tumors will clump up in corners trying to get to a point they cant reach
 
         # make all available queens spread creep until creep coverage is reached 50%
-        if hasattr(self, "creepCoverage") and (self.creepCoverage < self.stopMakingNewTumorsWhenAtCoverage or allTumors.amount - len(self.usedCreepTumors) < 25):
+        if hasattr(self, "creepCoverage") and (
+                self.creepCoverage < self.stopMakingNewTumorsWhenAtCoverage or allTumors.amount - len(
+                self.usedCreepTumors) < 25):
             for queen in unassignedQueens:
                 # locations = await self.findCreepPlantLocation(self.positionsWithoutCreep, castingUnit=queen, minRange=3, maxRange=30, stepSize=2, locationAmount=16)
-                if self.townhalls.ready.exists and not self.defending_queens:
-                    locations = await self.findCreepPlantLocation(self.positionsWithoutCreep, castingUnit=queen, minRange=3, maxRange=30, stepSize=2, locationAmount=16)
+                if self.townhalls.ready.exists:
+                    locations = await self.findCreepPlantLocation(self.positionsWithoutCreep, castingUnit=queen,
+                                                                  minRange=3, maxRange=30, stepSize=2,
+                                                                  locationAmount=16)
                     # locations = await self.findCreepPlantLocation(self.positionsWithoutCreep, castingUnit=self.townhalls.ready.random, minRange=3, maxRange=30, stepSize=2, locationAmount=16)
                     if locations is not None:
                         for loc in locations:
@@ -829,7 +432,6 @@ class Overmind(sc2.BotAI):
                             if not err:
                                 break
 
-        
         unusedTumors = allTumors.filter(lambda x: x.tag not in self.usedCreepTumors)
         tumorsMadeTumorPositions = set()
         for tumor in unusedTumors:
@@ -838,7 +440,9 @@ class Overmind(sc2.BotAI):
                 continue
             abilities = await self.get_available_abilities(tumor)
             if AbilityId.BUILD_CREEPTUMOR_TUMOR in abilities:
-                locations = await self.findCreepPlantLocation(self.positionsWithoutCreep, castingUnit=tumor, minRange=10, maxRange=10) # min range could be 9 and maxrange could be 11, but set both to 10 and performance is a little better
+                locations = await self.findCreepPlantLocation(self.positionsWithoutCreep, castingUnit=tumor,
+                                                              minRange=10,
+                                                              maxRange=10)  # min range could be 9 and maxrange could be 11, but set both to 10 and performance is a little better
                 if locations is not None:
                     for loc in locations:
                         err = await self.do(tumor(BUILD_CREEPTUMOR_TUMOR, loc))
@@ -847,149 +451,252 @@ class Overmind(sc2.BotAI):
                             self.usedCreepTumors.add(tumor.tag)
                             break
 
-    async def find_strategy(self):
-        if self.enemy_race != None and self.strategy == "Unsure":
-            if self.enemy_race == "Terran":
-                self.strategy = "hydra/ling/bane"
-            elif self.enemy_race == "Zerg":
-                self.strategy = "roach/hydra"
-            elif self.enemy_race == "Protoss":
-                self.strategy = "muta/ling/bane"
+    async def findCreepPlantLocation(self, targetPositions, castingUnit, minRange=None, maxRange=None, stepSize=1,
+                                     onlyAttemptPositionsAroundUnit=False, locationAmount=32,
+                                     dontPlaceTumorsOnExpansions=True):
+        """function that figures out which positions are valid for a queen or tumor to put a new tumor
+        Arguments:
+            targetPositions {set of Point2} -- For me this parameter is a set of Point2 objects where creep should go towards
+            castingUnit {Unit} -- The casting unit (queen or tumor)
+        Keyword Arguments:
+            minRange {int} -- Minimum range from the casting unit's location (default: {None})
+            maxRange {int} -- Maximum range from the casting unit's location (default: {None})
+            onlyAttemptPositionsAroundUnit {bool} -- if True, it will only attempt positions around the unit (ideal for tumor), if False, it will attempt a lot of positions closest from hatcheries (ideal for queens) (default: {False})
+            locationAmount {int} -- a factor for the amount of positions that will be attempted (default: {50})
+            dontPlaceTumorsOnExpansions {bool} -- if True it will sort out locations that would block expanding there (default: {True})
+        Returns:
+            list of Point2 -- a list of valid positions to put a tumor on
+        """
 
-            await self.chat_send("Going " + self.strategy)
+        assert isinstance(castingUnit, Unit)
+        positions = []
+        ability = self._game_data.abilities[ZERGBUILD_CREEPTUMOR.value]
+        if minRange is None: minRange = 0
+        if maxRange is None: maxRange = 500
 
-    async def find_race(self):
-        if self.known_enemy_units.amount > 0 and self.enemy_race == None:
-            enemy_units = self.remembered_enemy_units
-            if self.remembered_enemy_units.filter(lambda unit: unit.type_id in self.Terran):
-                self.enemy_race = "Terran"
-            elif self.remembered_enemy_units.filter(lambda unit: unit.type_id in self.Zerg):
-                self.enemy_race = "Zerg"
-            elif self.remembered_enemy_units.filter(lambda unit: unit.type_id in self.Protoss):
-                self.enemy_race = "Protoss"
+        # get positions around the casting unit
+        positions = self.getPositionsAroundUnit(castingUnit, minRange=minRange, maxRange=maxRange,
+                                                stepSize=stepSize,
+                                                locationAmount=locationAmount)
 
-            await self.chat_send("Facing " + self.enemy_race)
+        # stop when map is full with creep
+        if len(self.positionsWithoutCreep) == 0:
+            return None
 
-                
-    async def expand(self):
-        expand_every = 2 * 60
-        prefered_base_count = 1 + int(math.floor(self.get_game_time() / expand_every))
-        prefered_base_count = max(prefered_base_count, 2) # Take natural ASAP (i.e. minimum 2 bases)
-        current_base_count = (self.units(HATCHERY).amount + self.units(LAIR).amount + self.units(HIVE).amount)
+        # filter positions that would block expansions
+        if dontPlaceTumorsOnExpansions and hasattr(self, "exactExpansionLocations"):
+            positions = [x for x in positions if
+                         self.getHighestDistance(x.closest(self.exactExpansionLocations), x) > 3]
+            # TODO: need to check if this doesnt have to be 6 actually
+            # this number cant also be too big or else creep tumors wont be placed near mineral fields where they can actually be placed
 
-        if self.minerals > 900:
-            prefered_base_count += 1
+        # check if any of the positions are valid
+        validPlacements = await self._client.query_building_placement(ability, positions)
 
-        if current_base_count < prefered_base_count and not self.stop_expand and not self.defending and not self.panic and not self.emergency:
-            self.stop_worker = True
-            self.stop_army = True
-            self.expanding = True
-            if self.can_afford(HATCHERY) and current_base_count < 8:
-                    location = await self.get_next_expansion()
-                    location = await self.find_placement(HATCHERY, near=location, random_alternative=False, placement_step=1, minDistanceToResources=5)
-                    if location is not None:
-                        w = self.select_build_worker(location)
-                        if w is not None:
-                            err = await self.build(HATCHERY, location, max_distance=20, unit=w, random_alternative=False, placement_step=1)
+        # filter valid results
+        validPlacements = [p for index, p in enumerate(positions) if validPlacements[index] == ActionResult.Success]
 
-        elif (current_base_count >= prefered_base_count or self.already_pending(HATCHERY)) and not self.cannon_rush and not self.panic and not self.emergency:
-            self.stop_worker = False
-            self.stop_army = False
-            self.expanding = False
+        allTumors = self.units(CREEPTUMOR) | self.units(CREEPTUMORBURROWED) | self.units(CREEPTUMORQUEEN)
+        # usedTumors = allTumors.filter(lambda x:x.tag in self.usedCreepTumors)
+        unusedTumors = allTumors.filter(lambda x: x.tag not in self.usedCreepTumors)
+        if castingUnit is not None and castingUnit in allTumors:
+            unusedTumors = unusedTumors.filter(lambda x: x.tag != castingUnit.tag)
 
-    async def build_workers(self):
-        larvae = self.units(LARVA)
-        if len(((self.units(HATCHERY))*22) + ((self.units(LAIR))*22) + ((self.units(HIVE))*22)) > len(self.units(DRONE)) and not self.stop_worker:
-            if self.units(DRONE).amount > 40:
-                if self.can_afford(DRONE) and larvae.exists and self.already_pending(DRONE) < 2 and self.units(DRONE).amount < 80:
-                    larva = larvae.random
-                    await self.do(larva.train(DRONE))
+        # filter placements that are close to other unused tumors
+        if len(unusedTumors) > 0:
+            validPlacements = [x for x in validPlacements if x.distance_to(unusedTumors.closest_to(x)) >= 10]
+
+        validPlacements.sort(key=lambda x: x.distance_to(x.closest(self.positionsWithoutCreep)), reverse=False)
+
+        if len(validPlacements) > 0:
+            return validPlacements
+        return None
+
+    async def zergUpgrades(self):
+        if self.buildMore:
+            if self.units(EVOLUTIONCHAMBER).exists:
+                for evochamber in self.units(EVOLUTIONCHAMBER).ready:
+                    if evochamber.noqueue:
+                        for upgrade_level in range(1, 4):
+                            upgrade_armor_id = getattr(sc2.constants,
+                                                       "RESEARCH_ZERGGROUNDARMORLEVEL" + str(upgrade_level))
+                            upgrade_missle_id = getattr(sc2.constants,
+                                                        "RESEARCH_ZERGMISSILEWEAPONSLEVEL" + str(upgrade_level))
+                            upgrade_melee_id = getattr(sc2.constants,
+                                                       "RESEARCH_ZERGMELEEWEAPONSLEVEL" + str(upgrade_level))
+                            if await self.has_ability(upgrade_missle_id, evochamber):
+                                if self.can_afford(upgrade_missle_id):
+                                    await self.do(evochamber(upgrade_missle_id))
+                            elif await self.has_ability(upgrade_armor_id, evochamber):
+                                if self.can_afford(upgrade_armor_id):
+                                    await self.do(evochamber(upgrade_armor_id))
+                            elif await self.has_ability(upgrade_melee_id, evochamber):
+                                if self.can_afford(upgrade_melee_id):
+                                    await self.do(evochamber(upgrade_melee_id))
+
+    async def defend(self):
+        enemiesCloseToTh = None
+        for th in self.townhalls:
+            if self.get_game_time() < 900:
+                enemiesCloseToTh = self.known_enemy_units.closer_than(30, th.position)
             else:
-                if self.can_afford(DRONE) and larvae.exists and (self.units(DRONE).amount) < 80:
-                    larva = larvae.random
-                    await self.do(larva.train(DRONE))
+                enemiesCloseToTh = self.known_enemy_units.closer_than(30, th.position)
+        if enemiesCloseToTh and not self.attacking:
+            self.defending = True
+            for unit in self.armyUnits.idle:
+                self.combinedActions.append(unit.attack(enemiesCloseToTh.random.position))
+        elif not enemiesCloseToTh:
+            self.defending = False
 
-    async def build_overlords(self):
-        larvae = self.units(LARVA)
-        if self.supply_used < 195:    
-            if self.supply_left < 7 and larvae.exists and self.already_pending(OVERLORD) < 2:
-                if self.can_afford(OVERLORD):
-                    larva = larvae.random
-                    await self.do(larva.train(OVERLORD))
+    async def getOverseer(self):
+        if (self.units(LAIR) | self.units(HIVE)).exists and (
+                self.units(OVERSEER) | self.units(OVERLORDCOCOON)).amount < 2:
+            if self.units(OVERLORD).exists and self.can_afford(OVERSEER):
+                ov = self.units(OVERLORD).random
+                self.combinedActions.append(ov(MORPH_OVERSEER))
 
-        if (self.units(LAIR) | self.units(HIVE)).exists and (self.units(OVERSEER) | self.units(OVERLORDCOCOON)).amount < 2 and not self.stop_army:
-                if self.units(OVERLORD).exists and self.can_afford(OVERSEER):
-                        ov = self.units(OVERLORD).random
-                        await self.do(ov(MORPH_OVERSEER))
+    async def burrowMicro(self):
+        for unit in self.units(ROACH).ready:
+            nearby_enemy_units = self.known_enemy_units.closer_than(10, unit)
+            if unit.health / unit.health_max < 3 / 10 and nearby_enemy_units.amount > 2:
+                abilities = await self.get_available_abilities(unit)
+                if AbilityId.BURROWDOWN_ROACH in abilities and self.can_afford(BURROWDOWN_ROACH):
+                    self.combinedActions.append(unit(BURROWDOWN_ROACH))
 
-    async def ov_scout(self):
-        #if len(self.enemy_start_locations) > 1:
-            #print(self.enemy_start_locations)
-        #    if self.units(OVERLORD).amount > 3:
-        #        ov1 = self.units(OVERLORD).idle.closest_to(self.enemy_start_locations[0])
-        #        if not self.ov1_scout and ov1:
-        #            await self.do(ov1.move(self.enemy_start_locations[0].position))
-        #            self.ov1_scout = True
-        #        ov2 = self.units(OVERLORD).idle.closest_to(self.enemy_start_locations[1])
-        #        if not self.ov2_scout and ov2:
-        #            await self.do(ov2.move(self.enemy_start_locations[1].position))
-        #            self.ov2_scout = True
-        #        ov3 = self.units(OVERLORD).idle.closest_to(self.enemy_start_locations[2])
-        #        if not self.ov3_scout and ov3:
-        #            await self.do(ov3.move(self.enemy_start_locations[2].position))
-        #            self.ov3_scout = True
-        #else:
+        for unit in self.units(ROACHBURROWED).ready:
+            nearby_enemy_units = self.known_enemy_units.closer_than(10, unit)
+            if (unit.health / unit.health_max > 6 / 10 or nearby_enemy_units.amount < 2) and unit.is_burrowed:
+                abilities = await self.get_available_abilities(unit)
+                if AbilityId.BURROWUP_ROACH in abilities and self.can_afford(BURROWUP_ROACH):
+                    self.combinedActions.append(unit(BURROWUP_ROACH))
+
+        for unit in self.units(HYDRALISK).ready:
+            nearby_enemy_units = self.known_enemy_units.closer_than(10, unit)
+            if unit.health / unit.health_max < 3 / 10 and nearby_enemy_units.amount > 2:
+                abilities = await self.get_available_abilities(unit)
+                if AbilityId.BURROWDOWN_HYDRALISK in abilities and self.can_afford(BURROWDOWN_HYDRALISK):
+                    self.combinedActions.append(unit(BURROWDOWN_HYDRALISK))
+
+        for unit in self.units(HYDRALISKBURROWED).ready:
+            nearby_enemy_units = self.known_enemy_units.closer_than(10, unit)
+            if (unit.health / unit.health_max > 6 / 10 or nearby_enemy_units.amount < 2) and unit.is_burrowed:
+                abilities = await self.get_available_abilities(unit)
+                if AbilityId.BURROWUP_HYDRALISK in abilities and self.can_afford(BURROWUP_HYDRALISK):
+                    self.combinedActions.append(unit(BURROWUP_HYDRALISK))
+
+    async def moveOverseer(self):
+        if self.armyUnits.exists:
+            lowest_health = self.armyUnits.random
+            for unit in self.armyUnits:
+                if unit.health < lowest_health.health:
+                    lowest_health = unit
+                for medic in self.units(OVERSEER).ready:
+                    self.combinedActions.append(medic.attack(lowest_health.position))
+
+    async def makeChangeling(self):
+        for overseer in self.units(OVERSEER).ready:
+            if overseer.energy >= 50:
+                self.combinedActions.append(overseer(SPAWNCHANGELING_SPAWNCHANGELING))
+
+    async def moveChangeling(self):
+        for unit in self.units(CHANGELING).ready.idle:
+            if self.known_enemy_structures.filter(lambda unit: unit.type_id in self.hqs):
+                target = self.known_enemy_structures.filter(lambda unit: unit.type_id in self.hqs).closest_to(
+                    self.game_info.map_center).position
+            else:
+                target = random.choice(list(self.expansion_locations.keys()))
+            self.combinedActions.append(unit.attack(target))
+        changeling = self.units(CHANGELINGZEALOT).ready | self.units(CHANGELINGMARINESHIELD).ready | self.units(CHANGELINGMARINE).ready | self.units(CHANGELINGZERGLINGWINGS).ready | self.units(CHANGELINGZERGLING).ready
+        for change in changeling:
+            self.combinedActions.append(change.attack(self.find_target(self.state).position))
+
+    async def ovScout(self):
         ov = self.units(OVERLORD).closest_to(self.enemy_start_locations[0])
-        if not self.ovy_scout:
-            await self.do(ov.move(self.enemy_start_locations[0].position))
-            self.ovy_scout = True
+        if not self.ovyScout:
+            self.combinedActions.append(ov.move(self.enemy_start_locations[0].position))
+            self.ovyScout = True
 
-    def get_game_time(self):
+    async def scout(self):
+        if self.workers.exists:
+            if self.units.find_by_tag(self.scouter) == None:
+                worker = self.workers.random
+                self.scouter = worker.tag
+                scout = self.workers.find_by_tag(self.scouter)
+                if self.get_game_time() < 120:
+                    random_exp_location = random.choice(self.enemy_start_locations)
+                else:
+                    random_exp_location = random.choice(list(self.expansion_locations.keys()))
+                    self.combinedActions.append(scout.move(random_exp_location))
 
-        return self.state.game_loop*0.725*(1/16)
+            scout = self.workers.find_by_tag(self.scouter)
+            if self.get_game_time() < 180:
+                random_exp_location = random.choice(self.enemy_start_locations)
+            else:
+                random_exp_location = random.choice(list(self.expansion_locations.keys()))
 
-    def get_rally_location(self):
-        if self.townhalls.exists:
-            hq = self.townhalls.closest_to(self.game_info.map_center).position
-            rally_location = hq.position.towards(self.game_info.map_center, 8)
-            return rally_location
+            if scout.is_idle:
+                self.combinedActions.append(scout.move(random_exp_location))
 
-    def find_target(self, state):
-        if len(self.known_enemy_units) > 0:
-            return random.choice(self.known_enemy_units)
-        elif len(self.known_enemy_structures) > 0:
-            return random.choice(self.known_enemy_structures)
-        else:
-            return self.enemy_start_locations[0]
+            # Basic avoidance: If enemy is too close, go to map center
+            nearby_enemy_units = self.known_enemy_units.not_structure.filter(
+                lambda unit: unit.type_id not in self.units_to_ignore).closer_than(5, scout)
+            if nearby_enemy_units.exists:
+                new_random_exp_location = random.choice(list(self.expansion_locations.keys()))
 
-    async def do(self, action):
-        
-        self.order_queue.append(action) #await self._client.actions(action, game_data=self._game_data)
+                random_exp_location = new_random_exp_location
+                self.combinedActions.append(scout.move(random_exp_location))
 
-    async def execute_order_queue(self):
-        await self._client.actions(self.order_queue, game_data=self._game_data)
-        self.order_queue = [] # Reset order queue
+            # We're close enough, so change target
+            if scout.distance_to(random_exp_location) < 1:
+                random_exp_location = random.choice(list(self.expansion_locations.keys()))
+                self.combinedActions.append(scout.move(random_exp_location))
 
-    async def has_ability(self, ability, unit):
-        abilities = await self.get_available_abilities(unit)
-        if ability in abilities:
-            return True
-        else:
-            return False
+    async def rememberEnemies(self):
+        enemySupply = 0
+        for unit in self.known_enemy_units.not_structure.filter(lambda unit: unit.type_id not in self.units_to_ignore):
+            if not unit.tag in self.enemies:
+                enemySupply += unit._type_data._proto.food_required
+                self.enemies[unit.tag] = enemySupply
 
-    async def can_take_expansion(self):
-        # Must have a valid exp location
-        location = await self.get_next_expansion()
-        if not location:
-            return False
-        # Must be able to find a valid building position
-        if self.can_afford(HATCHERY):
-            position = await self.find_placement(HATCHERY, location.rounded, max_distance=10, random_alternative=False, placement_step=1)
-            if not position:
-                return False
 
-        return True
-    
+
+    async def on_unit_destroyed(self, unit_tag):
+        if unit_tag in self.enemies:
+            del self.enemies[unit_tag]
+
+
+    async def checkSupplies(self):
+        if self.get_game_time() < 1000:
+            mySupply = 0
+            enemySupply = 0
+            for unit in self.armyUnits:
+                mySupply += unit._type_data._proto.food_required
+
+            for tags, supply in self.enemies.items():
+                enemySupply += supply
+            print(enemySupply)
+
+            if enemySupply > mySupply * 1.3:
+                self.buildArmy = True
+                self.droneUp = False
+
+            if mySupply * 1.1 >= enemySupply and self.buildArmy:
+                self.buildArmy = False
+                self.droneUp = True
+
+
+    ######USE FUNCTIONS######
+    def getHighestDistance(self, unit1, unit2):
+        # returns just the highest distance difference, return max(abs(x2-x1), abs(y2-y1))
+        # required for creep tumor placement
+        assert isinstance(unit1, (Unit, Point2, Point3))
+        assert isinstance(unit2, (Unit, Point2, Point3))
+        if isinstance(unit1, Unit):
+            unit1 = unit1.position.to2
+        if isinstance(unit2, Unit):
+            unit2 = unit2.position.to2
+        return max(abs(unit1.x - unit2.x), abs(unit1.y - unit2.y))
+
     async def find_placement(self, building, near, max_distance=20, random_alternative=False, placement_step=3, min_distance=0, minDistanceToResources=3):
         """Finds a placement location for building."""
 
@@ -1012,7 +719,7 @@ class Overmind(sc2.BotAI):
                 [(-distance, dy) for dy in range(-distance, distance+1, placement_step)] +
                 [( distance, dy) for dy in range(-distance, distance+1, placement_step)]
             )]
-            if (self.townhalls | self.state.mineral_field | self.state.vespene_geyser).exists and minDistanceToResources > 0: 
+            if (self.townhalls | self.state.mineral_field | self.state.vespene_geyser).exists and minDistanceToResources > 0:
                 possible_positions = [x for x in possible_positions if (self.state.mineral_field | self.state.vespene_geyser).closest_to(x).distance_to(x) >= minDistanceToResources] # filter out results that are too close to resources
 
             res = await self._client.query_building_placement(building, possible_positions)
@@ -1026,70 +733,172 @@ class Overmind(sc2.BotAI):
                 return min(possible, key=lambda p: p.distance_to(near))
         return None
 
-    async def findCreepPlantLocation(self, targetPositions, castingUnit, minRange=None, maxRange=None, stepSize=1, onlyAttemptPositionsAroundUnit=False, locationAmount=32, dontPlaceTumorsOnExpansions=True):
-        """function that figures out which positions are valid for a queen or tumor to put a new tumor     
-        
-        Arguments:
-            targetPositions {set of Point2} -- For me this parameter is a set of Point2 objects where creep should go towards 
-            castingUnit {Unit} -- The casting unit (queen or tumor)
-        
-        Keyword Arguments:
-            minRange {int} -- Minimum range from the casting unit's location (default: {None})
-            maxRange {int} -- Maximum range from the casting unit's location (default: {None})
-            onlyAttemptPositionsAroundUnit {bool} -- if True, it will only attempt positions around the unit (ideal for tumor), if False, it will attempt a lot of positions closest from hatcheries (ideal for queens) (default: {False})
-            locationAmount {int} -- a factor for the amount of positions that will be attempted (default: {50})
-            dontPlaceTumorsOnExpansions {bool} -- if True it will sort out locations that would block expanding there (default: {True})
-        
-        Returns:
-            list of Point2 -- a list of valid positions to put a tumor on
-        """
+    async def has_ability(self, ability, unit):
+        abilities = await self.get_available_abilities(unit)
+        if ability in abilities:
+            return True
+        else:
+            return False
 
-        assert isinstance(castingUnit, Unit)
-        positions = []
-        ability = self._game_data.abilities[ZERGBUILD_CREEPTUMOR.value]
-        if minRange is None: minRange = 0
-        if maxRange is None: maxRange = 500
+    def find_target(self, state):
+        if len(self.known_enemy_units) > 0:
+            return random.choice(self.known_enemy_units)
+        elif len(self.known_enemy_structures) > 0:
+            return random.choice(self.known_enemy_structures)
+        else:
+            return self.enemy_start_locations[0]
 
-        # get positions around the casting unit
-        positions = self.getPositionsAroundUnit(castingUnit, minRange=minRange, maxRange=maxRange, stepSize=stepSize, locationAmount=locationAmount)
+    def get_rally_location(self):
+        if self.townhalls.exists:
+            hq = self.townhalls.closest_to(self.game_info.map_center).position
+            rally_location = hq.position.towards(self.game_info.map_center, 6)
+            return rally_location
+        else:
+            rally_location = self.start_location
+            return rally_location
 
-        # stop when map is full with creep
-        if len(self.positionsWithoutCreep) == 0:
-            return None
+    async def hasLair(self):
+        if (self.units(LAIR).amount > 0):
+            return True
+        morphingYet = False
+        for h in self.units(HATCHERY):
+            if CANCEL_MORPHLAIR in await self.get_available_abilities(h):
+                morphingYet = True
+                break
+        if morphingYet:
+            return True
+        return False
 
-        # filter positions that would block expansions
-        if dontPlaceTumorsOnExpansions and hasattr(self, "exactExpansionLocations"):
-            positions = [x for x in positions if self.getHighestDistance(x.closest(self.exactExpansionLocations), x) > 3] 
-            # TODO: need to check if this doesnt have to be 6 actually
-            # this number cant also be too big or else creep tumors wont be placed near mineral fields where they can actually be placed
+    def get_game_time(self):
+        return self.state.game_loop * 0.725 * (1 / 16)
 
-        # check if any of the positions are valid
-        validPlacements = await self._client.query_building_placement(ability, positions)
+    async def expandNow(self, townhall, building=None, max_distance=10, location=None):
+        """Takes new expansion."""
 
-        # filter valid results
-        validPlacements = [p for index, p in enumerate(positions) if validPlacements[index] == ActionResult.Success]
+        # if not building:
+        #     building = self.townhalls.first.type_id
+        #
+        # assert isinstance(building, UnitTypeId)
 
-        allTumors = self.units(CREEPTUMOR) | self.units(CREEPTUMORBURROWED) | self.units(CREEPTUMORQUEEN)
-        # usedTumors = allTumors.filter(lambda x:x.tag in self.usedCreepTumors)
-        unusedTumors = allTumors.filter(lambda x:x.tag not in self.usedCreepTumors)
-        if castingUnit is not None and castingUnit in allTumors:
-            unusedTumors = unusedTumors.filter(lambda x:x.tag != castingUnit.tag)
+        if not location:
+            location = await self.get_next_expansion()
 
-        # filter placements that are close to other unused tumors
-        if len(unusedTumors) > 0:
-            validPlacements = [x for x in validPlacements if x.distance_to(unusedTumors.closest_to(x)) >= 10] 
+        if self.minerals >= 300:
+            await self.build(townhall, near=location, max_distance=max_distance, random_alternative=False, placement_step=1)
 
-        validPlacements.sort(key=lambda x: x.distance_to(x.closest(self.positionsWithoutCreep)), reverse=False)
+    async def distribute_workers(self, performanceHeavy=True, onlySaturateGas=False):
+        # expansion_locations = self.expansion_locations
+        # owned_expansions = self.owned_expansions
+        if self.townhalls.exists:
+            for w in self.workers.idle:
+                th = self.townhalls.closest_to(w)
+                mfs = self.state.mineral_field.closer_than(10, th)
+                if mfs:
+                    mf = mfs.closest_to(w)
+                    if mf.tag != self.scouter:
+                        self.combinedActions.append(w.gather(mf))
 
-        if len(validPlacements) > 0:
-            return validPlacements
-        return None
+        mineralTags = [x.tag for x in self.state.units.mineral_field]
+        # gasTags = [x.tag for x in self.state.units.vespene_geyser]
+        geyserTags = [x.tag for x in self.geysers]
 
-    async def findExactExpansionLocations(self):
-        # execute this on start, finds all expansions where creep tumors should not be build near
-        self.exactExpansionLocations = []
-        for loc in self.expansion_locations.keys():
-            self.exactExpansionLocations.append(await self.find_placement(HATCHERY, loc, minDistanceToResources=5.5, placement_step=1)) # TODO: change mindistancetoresource so that a hatch still has room to be built
+        workerPool = self.units & []
+        workerPoolTags = set()
+
+        # find all geysers that have surplus or deficit
+        deficitGeysers = {}
+        surplusGeysers = {}
+        for g in self.geysers.filter(lambda x: x.vespene_contents > 0):
+            # only loop over geysers that have still gas in them
+            deficit = g.ideal_harvesters - g.assigned_harvesters
+            if deficit > 0:
+                deficitGeysers[g.tag] = {"unit": g, "deficit": deficit}
+            elif deficit < 0:
+                surplusWorkers = self.workers.closer_than(10, g).filter(
+                    lambda w: w not in workerPoolTags and len(w.orders) == 1 and w.orders[0].ability.id in [
+                        AbilityId.HARVEST_GATHER] and w.orders[0].target in geyserTags)
+                # workerPool.extend(surplusWorkers)
+                for i in range(-deficit):
+                    if surplusWorkers.amount > 0:
+                        w = surplusWorkers.pop()
+                        workerPool.append(w)
+                        workerPoolTags.add(w.tag)
+                surplusGeysers[g.tag] = {"unit": g, "deficit": deficit}
+
+        # find all townhalls that have surplus or deficit
+        deficitTownhalls = {}
+        surplusTownhalls = {}
+        if not onlySaturateGas:
+            for th in self.townhalls:
+                deficit = th.ideal_harvesters - th.assigned_harvesters
+                if deficit > 0:
+                    deficitTownhalls[th.tag] = {"unit": th, "deficit": deficit}
+                elif deficit < 0:
+                    surplusWorkers = self.workers.closer_than(10, th).filter(
+                        lambda w: w.tag not in workerPoolTags and len(w.orders) == 1 and w.orders[0].ability.id in [
+                            AbilityId.HARVEST_GATHER] and w.orders[0].target in mineralTags)
+                    # workerPool.extend(surplusWorkers)
+                    for i in range(-deficit):
+                        if surplusWorkers.amount > 0:
+                            w = surplusWorkers.pop()
+                            workerPool.append(w)
+                            workerPoolTags.add(w.tag)
+                    surplusTownhalls[th.tag] = {"unit": th, "deficit": deficit}
+
+            if all([len(deficitGeysers) == 0, len(surplusGeysers) == 0,
+                    len(surplusTownhalls) == 0 or deficitTownhalls == 0]):
+                # cancel early if there is nothing to balance
+                return
+
+        # check if deficit in gas less or equal than what we have in surplus, else grab some more workers from surplus bases
+        deficitGasCount = sum(
+            gasInfo["deficit"] for gasTag, gasInfo in deficitGeysers.items() if gasInfo["deficit"] > 0)
+        surplusCount = sum(-gasInfo["deficit"] for gasTag, gasInfo in surplusGeysers.items() if gasInfo["deficit"] < 0)
+        surplusCount += sum(-thInfo["deficit"] for thTag, thInfo in surplusTownhalls.items() if thInfo["deficit"] < 0)
+
+        if deficitGasCount - surplusCount > 0:
+            # grab workers near the gas who are mining minerals
+            for gTag, gInfo in deficitGeysers.items():
+                if workerPool.amount >= deficitGasCount:
+                    break
+                workersNearGas = self.workers.closer_than(10, gInfo["unit"]).filter(
+                    lambda w: w.tag not in workerPoolTags and len(w.orders) == 1 and w.orders[0].ability.id in [
+                        AbilityId.HARVEST_GATHER] and w.orders[0].target in mineralTags)
+                while workersNearGas.amount > 0 and workerPool.amount < deficitGasCount:
+                    w = workersNearGas.pop()
+                    workerPool.append(w)
+                    workerPoolTags.add(w.tag)
+
+        # now we should have enough workers in the pool to saturate all gases, and if there are workers left over, make them mine at townhalls that have mineral workers deficit
+        for gTag, gInfo in deficitGeysers.items():
+            if performanceHeavy:
+                # sort furthest away to closest (as the pop() function will take the last element)
+                workerPool.sort(key=lambda x: x.distance_to(gInfo["unit"]), reverse=True)
+            for i in range(gInfo["deficit"]):
+                if workerPool.amount > 0:
+                    w = workerPool.pop()
+                    if w.tag != self.scouter:
+                        if len(w.orders) == 1 and w.orders[0].ability.id in [AbilityId.HARVEST_RETURN]:
+                            self.combinedActions.append(w.gather(gInfo["unit"], queue=True))
+                        else:
+                            self.combinedActions.append(w.gather(gInfo["unit"]))
+
+        if not onlySaturateGas:
+            # if we now have left over workers, make them mine at bases with deficit in mineral workers
+            for thTag, thInfo in deficitTownhalls.items():
+                if performanceHeavy:
+                    # sort furthest away to closest (as the pop() function will take the last element)
+                    workerPool.sort(key=lambda x: x.distance_to(thInfo["unit"]), reverse=True)
+                for i in range(thInfo["deficit"]):
+                    if workerPool.amount > 0:
+                        w = workerPool.pop()
+                        if w:
+                            if w.tag != self.scouter:
+                                mf = self.state.mineral_field.closer_than(10, thInfo["unit"]).closest_to(w)
+                                if len(w.orders) == 1 and w.orders[0].ability.id in [AbilityId.HARVEST_RETURN]:
+                                    self.combinedActions.append(w.gather(mf, queue=True))
+                                else:
+                                    self.combinedActions.append(w.gather(mf))
 
     def getPositionsAroundUnit(self, unit, minRange=0, maxRange=500, stepSize=1, locationAmount=32):
         # e.g. locationAmount=4 would only consider 4 points: north, west, east, south
@@ -1101,81 +910,22 @@ class Overmind(sc2.BotAI):
         positions = [Point2(( \
             loc.x + distance * math.cos(math.pi * 2 * alpha / locationAmount), \
             loc.y + distance * math.sin(math.pi * 2 * alpha / locationAmount))) \
-            for alpha in range(locationAmount) # alpha is the angle here, locationAmount is the variable on how accurate the attempts look like a circle (= how many points on a circle)
-            for distance in range(minRange, maxRange+1)] # distance depending on minrange and maxrange
+            for alpha in range(locationAmount)
+            # alpha is the angle here, locationAmount is the variable on how accurate the attempts look like a circle (= how many points on a circle)
+            for distance in range(minRange, maxRange + 1)]  # distance depending on minrange and maxrange
         return positions
 
-    def remember_enemy_units(self):
-        # Every 60 seconds, clear all remembered units (to clear out killed units)
-        #if round(self.get_game_time() % 60) == 0:
-        #    self.remembered_enemy_units_by_tag = {}
+    async def findExactExpansionLocations(self):
+        # execute this on start, finds all expansions where creep tumors should not be build near
+        self.exactExpansionLocations = []
+        for loc in self.expansion_locations.keys():
+            self.exactExpansionLocations.append(await self.find_placement(HATCHERY, loc, minDistanceToResources=5.5, placement_step=1))  # TODO: change mindistancetoresource so that a hatch still has room to be built
 
-        # Look through all currently seen units and add them to list of remembered units (override existing)
-        for unit in self.known_enemy_units:
-            unit.is_known_this_step = True
-            self.remembered_enemy_units_by_tag[unit.tag] = unit
-
-        # Convert to an sc2 Units object and place it in self.remembered_enemy_units
-        self.remembered_enemy_units = sc2.units.Units([], self._game_data)
-        for tag, unit in list(self.remembered_enemy_units_by_tag.items()):
-            # Make unit.is_seen = unit.is_visible 
-            if unit.is_known_this_step:
-                unit.is_seen = unit.is_visible # There are known structures that are not visible
-                unit.is_known_this_step = False # Set to false for next step
-            else:
-                unit.is_seen = False
-
-            # Units that are not visible while we have friendly units nearby likely don't exist anymore, so delete them
-            if not unit.is_seen and self.units.closer_than(7, unit).exists:
-                del self.remembered_enemy_units_by_tag[tag]
-                continue
-
-            self.remembered_enemy_units.append(unit)
-
-    # Remember friendly units' previous state, so we can see if they're taking damage
-    def remember_friendly_units(self):
-        for unit in self.units:
-            unit.is_taking_damage = False
-
-            # If we already remember this friendly unit
-            if unit.tag in self.remembered_friendly_units_by_tag:
-                health_old = self.remembered_friendly_units_by_tag[unit.tag].health
-                shield_old = self.remembered_friendly_units_by_tag[unit.tag].shield
-
-                # Compare its health/shield since last step, to find out if it has taken any damage
-                if unit.health < health_old or unit.shield < shield_old:
-                    unit.is_taking_damage = True
-                
-            self.remembered_friendly_units_by_tag[unit.tag] = unit
-
-    def has_order(self, orders, units):
-        if type(orders) != list:
-            orders = [orders]
-
-        count = 0
-
-        if type(units) == sc2.unit.Unit:
-            unit = units
-            if len(unit.orders) >= 1 and unit.orders[0].ability.id in orders:
-                count += 1
-        else:
-            for unit in units:
-                if len(unit.orders) >= 1 and unit.orders[0].ability.id in orders:
-                  count += 1
-
-        return count
-
-    async def order(self, units, order, target=None, silent=True):
-        if type(units) != list:
-            unit = units
-            await self.do(unit(order, target=target))
-        else:
-            for unit in units:
-                await self.do(unit(order, target=target))
-
-# run_game(maps.get("MechDepotLE"), [
+# run_game(maps.get("AbyssalReefLE"), [
 #     #Human(Race.Zerg),
 #     Bot(Race.Zerg, Overmind()),
 #     #Bot(Race.Protoss, CannonLoverBot())
-#     Computer(Race.Zerg, Difficulty.VeryHard)
-# ], realtime=True)
+#     Computer(Race.Random, Difficulty.VeryHard)
+#     #Bot(Race.Terran, SentdeBot())
+# ], realtime=False)
+
