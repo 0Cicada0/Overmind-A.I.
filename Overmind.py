@@ -186,7 +186,7 @@ class Overmind(sc2.BotAI):
     async def buildBanes(self):
         if self.units(HYDRALISKDEN).exists or self.buildArmy:
             for ling in self.units(ZERGLING).ready:
-                if not self.known_enemy_units.closer_than(30, ling.position):
+                if not self.known_enemy_units.closer_than(65, ling.position):
                     if self.units(BANELINGNEST).exists:
                         if self.units(BANELING).amount + self.units(BANELINGCOCOON).amount <= self.units(ZERGLING).amount:
                             self.combinedActions.append(ling(MORPHZERGLINGTOBANELING_BANELING))
