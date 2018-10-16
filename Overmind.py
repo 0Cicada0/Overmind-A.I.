@@ -143,6 +143,24 @@ class Overmind(sc2.BotAI):
         larva = self.units(LARVA).random
         if self.can_afford(unit):
             self.combinedActions.append(larva.train(unit))
+            
+    async def lurkerMicro(self):
+        for lurker in self.units(LURKER).ready:
+            nearby_enemy_units = self.known_enemy_units.closer_than(10, lurker)
+            if nearby_enemy_units.amount > 5:
+                await self.do(lurker(BURROWDOWN_LURKER))
+        for tank in self.units(LURKERBURROWED).ready:
+            nearby_enemy_units = self.known_enemy_units.closer_than(11, lurker)
+            if nearby_enemy_units.amount < 2:
+                await self.do(lurker(BURROWUP_LURKER))
+
+    async def buildLurkers(self):
+        if self.units(LURKERDEN).exists:
+            for hydra in self.units(HYDRALISK).ready:
+                if not self.known_enemy_units.closer_than(40, hydra.position):
+                    if self.units(LURKER).amount + self.units(LURKEREGG).amount < 10:
+                        self.combinedActions.append(hydra(MORPH_LURKER))
+
 
     async def buildStuff(self):
         if self.townhalls.exists:
@@ -154,6 +172,8 @@ class Overmind(sc2.BotAI):
                 if self.units(SPAWNINGPOOL).exists and not self.units(BANELINGNEST).exists:
                     await self.buildZerg(BANELINGNEST)
                 if self.units(LAIR).exists and not self.units(HYDRALISKDEN).exists:
+                    await self.buildZerg(HYDRALISKDEN)
+                if self,units(HYDRALISKDEN).exists and not self.unit(LURKERDEN).exists
                     await self.buildZerg(HYDRALISKDEN)
                 if self.units(EVOLUTIONCHAMBER).amount + self.already_pending(EVOLUTIONCHAMBER) < 2 and self.townhalls.amount > 1 and self.units(BANELINGNEST).exists:
                     await self.buildZerg(EVOLUTIONCHAMBER)
