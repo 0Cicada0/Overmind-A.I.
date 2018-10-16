@@ -44,7 +44,7 @@ class Overmind(sc2.BotAI):
         self.workersAway = []
 
     async def on_step(self, iteration):
-        self.armyUnits = self.units(ROACH).ready | self.units(ZERGLING).ready | self.units(HYDRALISK).ready | self.units(BROODLORD).ready | self.units(BANELING).ready
+        self.armyUnits = self.units(ROACH).ready | self.units(ZERGLING).ready | self.units(HYDRALISK).ready | self.units(LURKER).ready | self.units(BANELING).ready
         self.iteration = iteration
         # print(iteration)
         if iteration == 1:
@@ -130,15 +130,32 @@ class Overmind(sc2.BotAI):
                 elif self.droneUp and self.units(DRONE).amount + self.already_pending(DRONE) < 80 and self.units(DRONE).amount + self.already_pending(DRONE) < 22 * self.townhalls.amount:
                     await self.morphZerg(DRONE)
                 elif self.buildArmy or self.units(DRONE).amount + self.already_pending(DRONE) >= 80 or self.units(DRONE).amount + self.already_pending(DRONE) >= 22 * self.townhalls.amount:
-                    if self.units(SPAWNINGPOOL).exists:
-                        if self.units(HYDRALISKDEN).exists:
-                            if(self.units(ZERGLING).amount + self.already_pending(ZERGLING)) + (self.units(BANELING).amount + self.units(BANELINGCOCOON).amount) > (self.units(HYDRALISK).amount + self.already_pending(HYDRALISK)) * 3:
-                                await self.morphZerg(HYDRALISK)
-                            else:
-                                await self.morphZerg(ZERGLING)
-                        else:
-                            await self.morphZerg(ZERGLING)
+#                     if self.units(GREATERSPIRE).exists:
+#                         if self.units(ZERGLING).amount + self.already_pending(ZERGLING) < 20:
+#                             await self.morphZerg(ZERGLING)
+#                         else:
+#                             await self.morphZerg(CORRUPTOR)
+#                     elif self.units(SPAWNINGPOOL).exists:
+#                         if self.units(HYDRALISKDEN).exists:
+#                             await self.morphZerg(HYDRALISK)
+#                             if(self.units(ZERGLING).amount + self.already_pending(ZERGLING)) + (self.units(BANELING).amount + self.units(BANELINGCOCOON).amount) > (self.units(HYDRALISK).amount + self.already_pending(HYDRALISK)) * 3:
+#                                 await self.morphZerg(HYDRALISK)
+#                             else:
+#                                 await self.morphZerg(ZERGLING)
+#                         else:
+#                             await self.morphZerg(ZERGLING)
 
+                    if self.units(GREATERSPIRE).exists:
+                        if self.units(ZERGLING).amount + self.already_pending(ZERGLING) < 20:
+                            await self.morphZerg(ZERGLING)
+                        else:
+                            await self.morphZerg(CORRUPTOR)
+                    elif self.units(HYDRALISKDEN).exists:
+                        await self.morphZerg(HYDRALISK)
+                    elif self.units(SPAWNINGPOOL).exists:
+                        await self.morphZerg(ZERGLING)
+                            
+    
     async def morphZerg(self, unit):
         larva = self.units(LARVA).random
         if self.can_afford(unit):
