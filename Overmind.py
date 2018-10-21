@@ -1,19 +1,18 @@
 from sc2.unit import Unit
-from sc2.data import ActionResult
+from sc2.units import Units
+from sc2.data import race_gas, race_worker, race_townhalls, ActionResult, Attribute, Race
 
-import sc2 # pip install sc2
-from sc2 import Race, run_game, maps
+import sc2  # pip install sc2
+from sc2 import Race, Difficulty, run_game, maps
 from sc2.constants import *
 from sc2.ids.unit_typeid import *
 from sc2.ids.ability_id import *
 from sc2.position import Point2, Point3
+from sc2.helpers import ControlGroup
 
-from sc2.player import Bot
+from sc2.player import Bot, Computer, Human
 import math
 import random
-#from cannon_lover_bot import CannonLoverBot
-#from Terran_Bot import SentdeBot
-# from Trinity import Trinity
 
 
 class Overmind(sc2.BotAI):
@@ -740,9 +739,9 @@ class Overmind(sc2.BotAI):
                 self.combinedActions.append(scout.move(random_exp_location))
 
     async def rememberEnemies(self):
-        enemySupply = 0
         for unit in self.known_enemy_units.not_structure.filter(lambda unit: unit.type_id not in self.units_to_ignore):
             if not unit.tag in self.enemies:
+                enemySupply = 0
                 enemySupply += unit._type_data._proto.food_required
                 self.enemies[unit.tag] = enemySupply
                 # print(unit.type_id)
