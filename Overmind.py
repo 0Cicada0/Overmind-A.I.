@@ -1,4 +1,4 @@
-from sc2.unit import Unit
+from sc2.unit import Unitfrom sc2.unit import Unit
 from sc2.units import Units
 from sc2.data import race_gas, race_worker, race_townhalls, ActionResult, Attribute, Race
 
@@ -43,6 +43,8 @@ class Overmind(sc2.BotAI):
         self.lingSpeed = False
 
     async def on_step(self, iteration):
+        await self.do_actions(self.combinedActions)
+        self.combinedActions = []
         self.armyUnits = self.units(ROACH).ready | self.units(ZERGLING).ready | self.units(HYDRALISK).ready | self.units(BROODLORD).ready | self.units(BANELING).ready | self.units(LURKERMP).ready
         self.iteration = iteration
         # print(iteration)
@@ -79,6 +81,8 @@ class Overmind(sc2.BotAI):
             await self.defendQueen()
             await self.workerDefence()
             await self.buildLurkers()
+            await self.getHive()
+            await self.greaterSpire()
 
             if self.get_game_time() < 600:
                 await self.rememberEnemies()
@@ -89,14 +93,28 @@ class Overmind(sc2.BotAI):
             await self.attack()
             await self.defend()
             await self.attackRally()
-
-        await self.do_actions(self.combinedActions)
-        self.combinedActions = []
         self.droneUp = True
         self.buildArmy = False
         self.buildMore = True
 
     ###FUNCTIONS###
+    async def greaterSpire(self):
+        if self.units(HIVE).exists and self.units(GREATERSPIRE).amount + self.already_pending(GREATERSPIRE) < 1:
+            if self.units(SPIRE).ready.idle.exists:
+                if self.can_afford(GREATERSPIRE):
+                    self.combinedActions.append(self.units(SPIRE).ready.idle.random(UPGRADETOGREATERSPIRE_GREATERSPIRE))
+
+    async def getHive(self):
+        if self.units(LAIR).idle.exists:
+            hq = self.units(LAIR).idle.random
+            if not await self.hasHive() and self.vespene >= 150:
+                if not self.units(HIVE).exists:
+                    self.droneUp = False
+                    self.buildArmy = False
+                    self.buildMore = False
+                    if self.can_afford(HIVE):
+                        self.combinedActions.append(hq.build(HIVE))
+
     def lurkerGood(self):
         if self.units(LURKERMP).amount >= 10:
             return True
@@ -192,12 +210,12 @@ class Overmind(sc2.BotAI):
                     #             await self.morphZerg(ZERGLING)
                     #     else:
                     #         await self.morphZerg(ZERGLING)
-                    # if self.units(GREATERSPIRE).exists:
-                    #     if self.units(ZERGLING).amount + self.already_pending(ZERGLING) < 20:
-                    #         await self.morphZerg(ZERGLING)
-                    #     else:
-                    #         await self.morphZerg(CORRUPTOR)
-                    if self.vespene < 150 and self.minerals > 1000:
+                    if self.units(GREATERSPIRE).exists:
+                        if self.units(ZERGLING).amount + self.already_pending(ZERGLING) < 20:
+                            await self.morphZerg(ZERGLING)
+                        else:
+                            await self.morphZerg(CORRUPTOR)
+                    elif self.vespene < 150 and self.minerals > 1000:
                         if self.can_afford(ZERGLING):
                             self.combinedActions.append(larva.train(ZERGLING))
 
@@ -232,6 +250,10 @@ class Overmind(sc2.BotAI):
                     await self.buildZerg(EVOLUTIONCHAMBER)
                 if self.units(HYDRALISKDEN).exists and not self.units(LURKERDENMP).exists:
                     await self.buildZerg(LURKERDENMP)
+                if self.get_game_time() > 550 and self.units(LAIR).exists and not self.units(INFESTATIONPIT).exists:
+                    await self.buildZerg(INFESTATIONPIT)
+                if self.units(HIVE).exists and self.units(GREATERSPIRE).amount + self.already_pending(GREATERSPIRE) < 1 and not self.units(SPIRE).exists:
+                    await self.buildZerg(SPIRE)
 
     async def buildZerg(self, building):
         if self.townhalls.exists:
@@ -861,6 +883,18 @@ class Overmind(sc2.BotAI):
             return True
         return False
 
+    async def hasHive(self):
+        if (self.units(HIVE).amount > 0):
+            return True
+        morphingYet = False
+        for h in self.units(LAIR):
+            if CANCEL_MORPHHIVE in await self.get_available_abilities(h):
+                morphingYet = True
+                break
+        if morphingYet:
+            return True
+        return False
+
     def get_game_time(self):
         return self.state.game_loop * 0.725 * (1 / 16)
 
@@ -1013,12 +1047,12 @@ class Overmind(sc2.BotAI):
         for loc in self.expansion_locations.keys():
             self.exactExpansionLocations.append(await self.find_placement(HATCHERY, loc, minDistanceToResources=5.5, placement_step=1))  # TODO: change mindistancetoresource so that a hatch still has room to be built
 
-# run_game(maps.get("AbyssalReefLE"), [
+# run_game(maps.get("AcidPlantLE"), [
 #     # Human(Race.Zerg),
 #     Bot(Race.Zerg, Overmind()),
 #     #Bot(Race.Protoss, CannonLoverBot())
-#     # Computer(Race.Random, Difficulty.VeryHard)
-#     Bot(Race.Random, Trinity()),
+#     Computer(Race.Random, Difficulty.VeryHard)
+#     # Bot(Race.Random, Trinity()),
 # ], realtime=False)
 
 
