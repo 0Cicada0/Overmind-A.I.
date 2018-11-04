@@ -1,4 +1,4 @@
-from sc2.unit import Unitfrom sc2.unit import Unit
+from sc2.unit import Unit
 from sc2.units import Units
 from sc2.data import race_gas, race_worker, race_townhalls, ActionResult, Attribute, Race
 
@@ -41,63 +41,532 @@ class Overmind(sc2.BotAI):
         self.exactExpansionLocations = []
         self.workersAway = []
         self.lingSpeed = False
+        self.attack_groups = set()
+        self.runbyGroup = []
+        num = random.randint(1, 3)
+        print(num)
+        if num == 2:
+            num = random.randint(1, 3)
+            print(num)
+            # print(num)
+            if num == 2:
+                self.strategy = "cheese"
+            else:
+                self.strategy = "Roach"
+        else:
+            num = random.randint(1, 3)
+            print(num)
+            # print(num)
+            if num == 2:
+                self.strategy = "Swarm"
+            else:
+                self.strategy = "Lurker"
+
+
 
     async def on_step(self, iteration):
         await self.do_actions(self.combinedActions)
         self.combinedActions = []
-        self.armyUnits = self.units(ROACH).ready | self.units(ZERGLING).ready | self.units(HYDRALISK).ready | self.units(BROODLORD).ready | self.units(BANELING).ready | self.units(LURKERMP).ready
+        self.armyUnits = self.units(ROACH).ready | self.units(ZERGLING).filter(
+            lambda z: z.tag not in self.runbyGroup).ready | self.units(HYDRALISK).ready | self.units(BROODLORD).ready | self.units(BANELING).ready | self.units(LURKERMP).ready | self.units(SWARMHOSTMP).ready | self.units(RAVAGER).ready | self.units(LOCUSTMPFLYING).ready
         self.iteration = iteration
         # print(iteration)
+        if not self.townhalls.exists:
+            await self.chat_send("(gg)")
+            await self._client.leave()
+
         if iteration == 1:
+            print(self.strategy)
             await self.chat_send("(glhf)")
             await self.findExactExpansionLocations()
-        await self.armyScout()
-        await self.lurkerMicro()
-        # await self.burrowMicro()
-        await self.distribute_workers()
-        if iteration % 5 == 0:
-            if not self.townhalls.exists:
-                await self.chat_send("(gg)")
-                await self._client.leave()
-            await self.checkExpand()
-            await self.checkSupplies()
-            await self.makeUpgrades()
-            await self.getLair()
-            await self.buildStuff()
-            await self.morphStuff()
-            await self.zergUpgrades()
-            await self.getGases()
-            await self.buildExtractor()
-            await self.buildQueens()
+
+        if iteration % 10 == 0:
+            await self.distribute_workers()
+
+        elif self.strategy == "cheese":
+            await self.buildSpawing()
+            await self.buildCheese()
+            await self.cheeseAttack()
+            await self.cheeseSurrender()
+            await self.metabolic_boost()
+            await self.buildCheeseExtractor()
+            await self.checkLingSpeed()
+            # await self.distribute_workers_cheese()
+            await self.buildQueens_Cheese()
             await self.doQueenInjects(iteration)
             self.assignQueen()
+            await self.lingMicro()
+
+        elif self.strategy == "Lurker":
+            await self.armyScout()
+            await self.lurkerMicro()
             await self.doCreepSpread()
-            await self.zergUpgrades()
-            await self.getOverseer()
-            await self.moveOverseer()
-            await self.makeChangeling()
-            await self.moveChangeling()
-            # await self.buildBanes()
-            await self.defendQueen()
-            await self.workerDefence()
-            await self.buildLurkers()
-            await self.getHive()
-            await self.greaterSpire()
 
-            if self.get_game_time() < 600:
+            # await self.burrowMicro()
+            if iteration % 10 == 0:
+                await self.moveOverseer()
+
+            if iteration % 5 == 0:
                 await self.rememberEnemies()
-                await self.ovScout()
-                await self.checkLingSpeed()
+                await self.checkExpand()
+                await self.checkSupplies()
+                await self.makeUpgrades()
+                await self.getLair()
+                await self.buildStuff()
+                await self.morphStuff()
+                await self.zergUpgrades()
+                await self.getGases()
+                await self.buildExtractor()
+                await self.buildQueens()
+                await self.doQueenInjects(iteration)
+                self.assignQueen()
+                await self.zergUpgrades()
+                await self.getOverseer()
+                await self.makeChangeling()
+                await self.moveChangeling()
+                # await self.buildBanes()
+                await self.defendQueen()
+                await self.workerDefence()
+                await self.buildLurkers()
+                await self.getHive()
+                # await self.greaterSpire()
 
-        if iteration % 3 == 0:
-            await self.attack()
-            await self.defend()
-            await self.attackRally()
+                if self.get_game_time() < 400:
+                    await self.lingMicro()
+                    await self.ovScout()
+                    await self.checkLingSpeed()
+
+            if iteration % 3 == 0:
+                await self.attack()
+                await self.defend()
+                await self.attackRally()
+                await self.runbyGroupAdding()
+                await self.runby()
+
+
+        elif self.strategy == "Swarm":
+
+            await self.armyScout()
+            await self.hostMicro()
+            await self.doCreepSpread()
+            # await self.lurkerMicro()
+
+            # await self.burrowMicro()
+            if iteration % 10 == 0:
+                await self.moveOverseer()
+
+            if iteration % 5 == 0:
+                await self.rememberEnemies()
+                await self.checkExpand()
+                await self.checkSupplies()
+                await self.makeUpgrades()
+                await self.getLair()
+                await self.buildStuffSwarm()
+                await self.morphStuffSwarm()
+                await self.zergUpgrades()
+                await self.getGases()
+                await self.buildExtractor()
+                await self.buildQueens()
+                await self.doQueenInjects(iteration)
+                self.assignQueen()
+                await self.zergUpgrades()
+                await self.getOverseer()
+                await self.makeChangeling()
+                await self.moveChangeling()
+                # await self.buildBanes()
+                await self.defendQueen()
+                await self.workerDefence()
+                # await self.buildLurkers()
+                await self.getHive()
+                # await self.greaterSpire()
+
+                if self.get_game_time() < 400:
+                    await self.lingMicro()
+                    await self.ovScout()
+                    await self.checkLingSpeed()
+
+            if iteration % 3 == 0:
+                await self.attack()
+                await self.defend()
+                await self.attackRally()
+                await self.runbyGroupAdding()
+                await self.runby()
+
+        elif self.strategy == "Roach":
+            self.attackSupply = 120
+            await self.armyScout()
+            await self.ravMicro()
+            await self.doCreepSpread()
+            # await self.lurkerMicro()
+
+            # await self.burrowMicro()
+            # if iteration % 10 == 0:
+            #     await self.moveOverseer()
+
+            if iteration % 5 == 0:
+                await self.rememberEnemies()
+                await self.checkExpandRoach()
+                await self.checkSupplies()
+                # await self.makeUpgrades()
+                # await self.getLair()
+                await self.buildStuffRoach()
+                await self.morphStuffRoach()
+                await self.zergUpgrades()
+                await self.getGases()
+                await self.buildExtractor()
+                await self.buildQueens()
+                await self.doQueenInjects(iteration)
+                self.assignQueen()
+                # await self.zergUpgrades()
+                await self.buildRavagers()
+                # await self.getOverseer()
+                # await self.makeChangeling()
+                # await self.moveChangeling()
+                # await self.buildBanes()
+                await self.defendQueen()
+                await self.workerDefence()
+                # await self.buildLurkers()
+                # await self.getHive()
+                # await self.greaterSpire()
+
+                if self.get_game_time() < 400:
+                    await self.lingMicro()
+                    await self.ovScout()
+                    await self.checkLingSpeed()
+
+            if iteration % 3 == 0:
+                await self.attack()
+                await self.defend()
+                await self.attackRally()
+                await self.runbyGroupAdding()
+                await self.runby()
+
         self.droneUp = True
         self.buildArmy = False
         self.buildMore = True
 
-    ###FUNCTIONS###
+    ###FUNCTIONS##
+    async def ravMicro(self):
+        for rav in self.units(RAVAGER).ready:
+            enemyThreatsClose = self.known_enemy_units.filter(lambda x: x.can_attack_ground).closer_than(15, rav)
+            if enemyThreatsClose:
+                closestEnemy = enemyThreatsClose.random
+                for enemy in enemyThreatsClose:
+                    if enemy.health > closestEnemy.health:
+                        closestEnemy = enemy
+                ready = await self.has_ability(EFFECT_CORROSIVEBILE, rav)
+                # print(ready)
+                if ready:
+                    # print("yay")
+                    self.combinedActions.append(rav(EFFECT_CORROSIVEBILE, closestEnemy.position))
+
+    async def buildRavagers(self):
+        if self.units(ROACHWARREN).exists:
+            for hydra in self.units(ROACH).ready:
+                if not self.known_enemy_units.closer_than(40, hydra.position) or hydra.health / hydra.health_max < 2 / 10:
+                    # print(self.units(LURKERMP).amount + self.units(LURKERMPEGG).amount)
+                    self.combinedActions.append(hydra(MORPHTORAVAGER_RAVAGER))
+
+    async def checkExpandRoach(self):
+        enemiesNearby = 0
+        if self.get_game_time() / 60 > 9:
+            self.expandTime = 3.5
+        expand_every = self.expandTime * 60
+        prefered_base_count = 2
+        current_base_count = self.townhalls.amount
+        if self.buildArmy:
+            prefered_base_count = 0
+
+        if self.minerals > 900:
+            prefered_base_count += 1
+
+        for th in self.townhalls:
+            enemiesNearby = self.known_enemy_units.not_structure.filter(lambda unit: unit.type_id not in self.units_to_ignore).closer_than(30, th)
+
+        if prefered_base_count > current_base_count and not self.already_pending(HATCHERY) and enemiesNearby.amount < 2:
+            self.expand = True
+        if prefered_base_count > current_base_count and current_base_count < 2 and not self.already_pending(
+                    HATCHERY) and enemiesNearby.amount < 2:
+            self.droneUp = False
+            self.buildMore = False
+
+        if not self.already_pending(HATCHERY) and enemiesNearby.amount < 2:
+            if self.expand:
+                if self.minerals >= 300:
+                    location = await self.get_next_expansion()
+                    await self.build(HATCHERY, near=location, max_distance=10, random_alternative=False,
+                                     placement_step=1)
+
+        if prefered_base_count <= current_base_count:
+            self.expand = False
+    async def morphStuffRoach(self):
+        if self.units(LARVA).exists:
+            larvae = self.units(LARVA).ready
+            if self.supply_left < 10 and self.already_pending(OVERLORD) < 2 and (self.droneUp or self.buildArmy):
+                    i = self.already_pending(OVERLORD)
+                    while i < 2:
+                        if self.can_afford(OVERLORD):
+                            await self.morphZerg(OVERLORD)
+                            i += 1
+                        else:
+                            break
+            if self.droneUp and self.units(DRONE).amount + self.already_pending(DRONE) < 50 and self.units(DRONE).amount + self.already_pending(DRONE) < 22 * self.townhalls.amount:
+                for larva in self.units(LARVA):
+                    if self.can_afford(DRONE):
+                        if self.units(DRONE).amount + self.already_pending(DRONE) < 80 and self.units(DRONE).amount + self.already_pending(DRONE) < 22 * self.townhalls.amount:
+                            await self.morphZerg(DRONE)
+                    else:
+                        break
+            if self.already_pending(DRONE) < 1 and self.units(DRONE).amount + self.already_pending(DRONE) < 80 and self.units(DRONE).amount + self.already_pending(DRONE) < 22 * self.townhalls.amount:
+                await self.morphZerg(DRONE)
+            if self.buildArmy or self.units(DRONE).amount + self.already_pending(DRONE) >= 80 or self.units(DRONE).amount + self.already_pending(DRONE) >= 22 * self.townhalls.amount:
+                    if self.units(ROACHWARREN).exists:
+                        for larva in self.units(LARVA):
+                            await self.morphZerg(ROACH)
+                    else:
+                        if self.units(SPAWNINGPOOL).exists:
+                            for larva in self.units(LARVA):
+                                await self.morphZerg(ZERGLING)
+
+    async def buildStuffRoach(self):
+        if self.townhalls.exists:
+            if self.buildMore:
+                if not self.units(SPAWNINGPOOL).exists:
+                    await self.buildZerg(SPAWNINGPOOL)
+                # if self.lingSpeed:
+                #     if self.units(SPAWNINGPOOL).exists and not self.units(BANELINGNEST).exists:
+                #         await self.buildZerg(BANELINGNEST)
+                if self.units(SPAWNINGPOOL).exists and not self.units(ROACHWARREN).exists:
+                    self.droneUp = False
+                    self.buildArmy = False
+                    await self.buildZerg(ROACHWARREN)
+                if self.units(EVOLUTIONCHAMBER).amount + self.already_pending(EVOLUTIONCHAMBER) < 1 and self.townhalls.amount > self.units(EVOLUTIONCHAMBER).amount + self.already_pending(EVOLUTIONCHAMBER) * 0.4 and self.lingSpeed:
+                    await self.buildZerg(EVOLUTIONCHAMBER)
+
+                # if self.units(HIVE).exists and self.units(GREATERSPIRE).amount + self.already_pending(GREATERSPIRE) < 1 and not self.units(SPIRE).exists:
+                #     await self.buildZerg(SPIRE)
+
+    async def morphStuffSwarm(self):
+        if self.units(LARVA).exists:
+            larvae = self.units(LARVA).ready
+            if self.supply_left < 10 and self.already_pending(OVERLORD) < 2 and (self.droneUp or self.buildArmy):
+                    i = self.already_pending(OVERLORD)
+                    while i < 2:
+                        if self.can_afford(OVERLORD):
+                            await self.morphZerg(OVERLORD)
+                            i += 1
+                        else:
+                            break
+            if self.droneUp and self.units(DRONE).amount + self.already_pending(DRONE) < 80 and self.units(DRONE).amount + self.already_pending(DRONE) < 22 * self.townhalls.amount:
+                for larva in self.units(LARVA):
+                    if self.can_afford(DRONE):
+                        if self.units(DRONE).amount + self.already_pending(DRONE) < 80 and self.units(DRONE).amount + self.already_pending(DRONE) < 22 * self.townhalls.amount:
+                            await self.morphZerg(DRONE)
+                    else:
+                        break
+            if self.already_pending(DRONE) < 1 and self.units(DRONE).amount + self.already_pending(DRONE) < 80 and self.units(DRONE).amount + self.already_pending(DRONE) < 22 * self.townhalls.amount:
+                await self.morphZerg(DRONE)
+            if self.buildArmy or self.units(DRONE).amount + self.already_pending(DRONE) >= 80 or self.units(DRONE).amount + self.already_pending(DRONE) >= 22 * self.townhalls.amount:
+                # if self.units(SPAWNINGPOOL).exists:
+                #     if self.units(HYDRALISKDEN).exists:
+                #         if(self.units(ZERGLING).amount + self.already_pending(ZERGLING)) + (self.units(BANELING).amount + self.units(BANELINGCOCOON).amount) > (self.units(HYDRALISK).amount + self.already_pending(HYDRALISK)) * 3:
+                #             await self.morphZerg(HYDRALISK)
+                #         else:
+                #             await self.morphZerg(ZERGLING)
+                #     else:
+                #         await self.morphZerg(ZERGLING)
+                if self.units(GREATERSPIRE).exists:
+                    for larva in self.units(LARVA):
+                        if self.units(ZERGLING).amount + self.already_pending(ZERGLING) < 20:
+                            await self.morphZerg(ZERGLING)
+                        else:
+                            await self.morphZerg(CORRUPTOR)
+                else:
+                    if self.units(INFESTATIONPIT).ready.exists:
+                            if self.vespene < 100 and self.minerals > 1500:
+                                for larva in self.units(LARVA):
+                                    await self.morphZerg(ZERGLING)
+
+                            for larva in self.units(LARVA):
+                                await self.morphZerg(SWARMHOSTMP)
+
+                    else:
+                        if self.units(SPAWNINGPOOL).exists:
+                            for larva in self.units(LARVA):
+                                await self.morphZerg(ZERGLING)
+
+    async def buildStuffSwarm(self):
+        if self.townhalls.exists:
+            if self.buildMore:
+                if not self.units(SPAWNINGPOOL).exists:
+                    await self.buildZerg(SPAWNINGPOOL)
+                # if self.lingSpeed:
+                #     if self.units(SPAWNINGPOOL).exists and not self.units(BANELINGNEST).exists:
+                #         await self.buildZerg(BANELINGNEST)
+                if self.units(LAIR).exists and not self.units(INFESTATIONPIT).exists:
+                    if self.vespene > 100:
+                        self.droneUp = False
+                        self.buildArmy = False
+                        await self.buildZerg(INFESTATIONPIT)
+                if self.units(EVOLUTIONCHAMBER).amount + self.already_pending(EVOLUTIONCHAMBER) < 2 and self.townhalls.amount > self.units(EVOLUTIONCHAMBER).amount + self.already_pending(EVOLUTIONCHAMBER) * 0.4 and self.lingSpeed:
+                    await self.buildZerg(EVOLUTIONCHAMBER)
+
+                # if self.units(HIVE).exists and self.units(GREATERSPIRE).amount + self.already_pending(GREATERSPIRE) < 1 and not self.units(SPIRE).exists:
+                #     await self.buildZerg(SPIRE)
+
+    async def runbyGroupAdding(self):
+        if self.units(HIVE).exists:
+            for z in self.units(ZERGLING).filter(lambda z: z.tag not in self.runbyGroup).ready:
+                if len(self.runbyGroup) < 20 and z not in self.runbyGroup:
+                    # print("1")
+                    self.runbyGroup.append(z.tag)
+
+                # elif len(self.runbyGroup2) < 20 and z not in self.runbyGroup and z not in self.runbyGroup1:
+                #     # print("2")
+                #     self.runbyGroup2.append(z.tag)
+                #     self.runbyGroup.append(z.tag)
+
+    async def runby(self):
+        if self.runbyGroup:
+            runby1Done = True
+            target = random.choice(list(self.expansion_locations.keys()))
+            for zerglingTag in self.runbyGroup:
+                zergling = self.units(ZERGLING).find_by_tag(zerglingTag)
+                if not zergling:
+                    self.runbyGroup.remove(zerglingTag)
+
+                if zergling:
+                    if not zergling.is_idle:
+                        runby1Done = False
+
+            for zerglingTag in self.runbyGroup:
+                zergling = self.units(ZERGLING).find_by_tag(zerglingTag)
+                if zergling:
+                    if runby1Done:
+                        await self.do(zergling.attack(target))
+
+    # async def hydraMicro(self):
+    #     for ling in self.units(HYDRALISK).ready:
+    #         enemyThreatsClose = self.known_enemy_units.filter(lambda x: x.can_attack_ground).closer_than(15, ling)
+    #         if enemyThreatsClose:
+    #             closestEnemy = enemyThreatsClose.closest_to(ling)
+    #             if closestEnemy.movement_speed < ling.movement_speed and ling.distance_to(closestEnemy) < ling._type_data._proto.range:
+    #                 retreatPoints = self.neighbors8(ling.position, distance=2) | self.neighbors8(ling.position, distance=3)
+    #                 retreatPoints = {x for x in retreatPoints if self.inPathingGrid(x)}
+    #                 if retreatPoints:
+    #                     retreatPoint = closestEnemy.position.furthest(retreatPoints)
+    #                     self.combinedActions.append(ling.move(retreatPoint))
+    #                     continue
+    async def hostMicro(self):
+        for ling in self.units(SWARMHOSTMP).ready:
+            enemyThreatsClose = self.known_enemy_units.filter(lambda x: x.can_attack_ground).closer_than(15, ling)
+            enemyThreatsVeryClose = self.known_enemy_units.filter(lambda x: x.can_attack_ground).closer_than(2, ling)
+            if enemyThreatsClose and not enemyThreatsVeryClose.amount > 8:
+                retreatPoints = self.neighbors8(ling.position, distance=2) | self.neighbors8(ling.position, distance=3)
+                retreatPoints = {x for x in retreatPoints if self.inPathingGrid(x)}
+                if retreatPoints:
+                    closestEnemy = enemyThreatsClose.closest_to(ling)
+                    retreatPoint = closestEnemy.position.furthest(retreatPoints)
+                    self.combinedActions.append(ling.move(retreatPoint))
+                    continue
+            enemyThreatsClose = self.known_enemy_units.closer_than(30, ling)
+            if enemyThreatsClose:
+                closestEnemy = enemyThreatsClose.closest_to(ling)
+                ready = await self.has_ability(EFFECT_SPAWNLOCUSTS, ling)
+                # print(ready)
+                if ready:
+                    # print("yay")
+                    self.combinedActions.append(ling(EFFECT_SPAWNLOCUSTS, closestEnemy.position))
+
+
+    async def lingMicro(self):
+        for ling in self.armyUnits.ready:
+            enemyThreatsClose = self.known_enemy_units.filter(lambda x: x.can_attack_ground).closer_than(15, ling)
+            enemyThreatsVeryClose = self.known_enemy_units.filter(lambda x: x.can_attack_ground).closer_than(2, ling)
+            if ling.health <= 10 and enemyThreatsClose and not enemyThreatsVeryClose.amount > 8:
+                retreatPoints = self.neighbors8(ling.position, distance=2) | self.neighbors8(ling.position, distance=3)
+                retreatPoints = {x for x in retreatPoints if self.inPathingGrid(x)}
+                if retreatPoints:
+                    closestEnemy = enemyThreatsClose.closest_to(ling)
+                    retreatPoint = closestEnemy.position.furthest(retreatPoints)
+                    self.combinedActions.append(ling.move(retreatPoint))
+                    continue
+    async def buildQueens_Cheese(self):
+        if self.buildMore:
+            if self.townhalls.exists:
+                for hq in self.townhalls.noqueue.ready:
+                    if self.units(SPAWNINGPOOL).ready.exists:
+                        if self.units(QUEEN).amount < (self.townhalls.amount * 1):
+                            if self.can_afford(QUEEN) and self.units(QUEEN).amount < 10:
+                                self.combinedActions.append(hq.train(QUEEN))
+
+    async def buildCheeseExtractor(self):
+        if self.iteration % 5 == 0:
+            if not self.already_pending(EXTRACTOR):
+                i = 0
+                if self.townhalls.exists:
+                    hq = self.townhalls.random
+                    if self.buildMore:
+                        # print("wow")
+                        vaspenes = self.state.vespene_geyser.closer_than(15.0, hq)
+                        if not self.units(EXTRACTOR).exists:
+                            for vaspene in vaspenes:
+                                if i == 0:
+                                    i += 1
+                                    if not self.can_afford(EXTRACTOR):
+                                        break
+                                    worker = self.select_build_worker(vaspene.position)
+                                    if worker is None:
+                                        break
+                                    if not self.units(EXTRACTOR).closer_than(1.0, vaspene).exists:
+                                        # print("hey")
+                                        self.combinedActions.append(worker.build(EXTRACTOR, vaspene))
+
+
+    async def metabolic_boost(self):
+        if self.vespene >= 100 and await self.has_ability(RESEARCH_ZERGLINGMETABOLICBOOST, self.units(SPAWNINGPOOL).first):
+            sp = self.units(SPAWNINGPOOL).ready
+            if sp.exists and self.minerals >= 100:
+                self.combinedActions.append(sp.first(RESEARCH_ZERGLINGMETABOLICBOOST))
+
+    async def cheeseSurrender(self):
+        if self.armyUnits.amount < 5 and self.get_game_time() > 300:
+            await self.chat_send("(gg)")
+            await self._client.leave()
+
+    async def cheeseAttack(self):
+        for ac in list(self.attack_groups):
+            alive_units = ac.select_units(self.units)
+            if alive_units.exists:
+                for unit in ac.select_units(self.units):
+                    self.combinedActions.append(unit.attack(self.find_target(self.state).position))
+            else:
+                self.attack_groups.remove(ac)
+
+        if self.armyUnits.idle.amount > 5:
+            cg = ControlGroup(self.units(ZERGLING).idle)
+            self.attack_groups.add(cg)
+
+    async def buildCheese(self):
+        if self.units(LARVA).exists:
+            for larva in self.units(LARVA):
+                if self.supply_left < 10 and self.already_pending(OVERLORD) < 1 and self.units(SPAWNINGPOOL).exists:
+                    if self.can_afford(OVERLORD):
+                        self.combinedActions.append(larva.train(OVERLORD))
+                elif self.units(SPAWNINGPOOL).not_ready.exists and self.already_pending(DRONE) < 22 * self.townhalls.amount:
+                    if self.can_afford(DRONE):
+                        self.combinedActions.append(larva.train(DRONE))
+                elif self.units(SPAWNINGPOOL).exists:
+                    if self.can_afford(ZERGLING):
+                        self.combinedActions.append(larva.train(ZERGLING))
+
+    async def buildSpawing(self):
+        if self.townhalls.exists:
+            hq = self.townhalls.first
+            if not self.units(SPAWNINGPOOL) and not self.already_pending(SPAWNINGPOOL):
+                if self.can_afford(SPAWNINGPOOL):
+                    await self.build(SPAWNINGPOOL, near=hq.position.towards(self.game_info.map_center, 8))
+
     async def greaterSpire(self):
         if self.units(HIVE).exists and self.units(GREATERSPIRE).amount + self.already_pending(GREATERSPIRE) < 1:
             if self.units(SPIRE).ready.idle.exists:
@@ -107,13 +576,14 @@ class Overmind(sc2.BotAI):
     async def getHive(self):
         if self.units(LAIR).idle.exists:
             hq = self.units(LAIR).idle.random
-            if not await self.hasHive() and self.vespene >= 150:
-                if not self.units(HIVE).exists:
-                    self.droneUp = False
-                    self.buildArmy = False
-                    self.buildMore = False
-                    if self.can_afford(HIVE):
-                        self.combinedActions.append(hq.build(HIVE))
+            if self.get_game_time() > 600:
+                if not await self.hasHive() and self.vespene >= 150:
+                    if not self.units(HIVE).exists:
+                        self.droneUp = False
+                        self.buildArmy = False
+                        self.buildMore = False
+                        if self.can_afford(HIVE):
+                            self.combinedActions.append(hq.build(HIVE))
 
     def lurkerGood(self):
         if self.units(LURKERMP).amount >= 10:
@@ -165,12 +635,15 @@ class Overmind(sc2.BotAI):
         for th in self.townhalls.ready:
             enemiesCloseToTh = self.known_enemy_units.filter(lambda unit: not unit.is_flying).closer_than(15, th.position)
         if enemiesCloseToTh:
-            if enemiesCloseToTh.amount > 2:
                 if self.workers.closer_than(15, enemiesCloseToTh.random.position).amount > enemiesCloseToTh.amount:
+                    i = 0
                     for worker in self.workers.closer_than(15, enemiesCloseToTh.random.position):
-                        target = enemiesCloseToTh.random
-                        self.combinedActions.append(worker.attack(target.position))
-                        self.workersAway.append(worker)
+                        if i <= enemiesCloseToTh.amount:
+                            target = enemiesCloseToTh.random
+                            self.combinedActions.append(worker.attack(target.position))
+                            self.workersAway.append(worker)
+                            i += 1
+
         for h in self.townhalls:
             for worker in self.workersAway:
                 w = self.workers.find_by_tag(worker)
@@ -194,44 +667,59 @@ class Overmind(sc2.BotAI):
 
     async def morphStuff(self):
         if self.units(LARVA).exists:
-            for larva in self.units(LARVA):
-                if self.supply_left < 10 and self.already_pending(OVERLORD) < 2 and (self.droneUp or self.buildArmy):
-                    if self.can_afford(OVERLORD):
-                        self.combinedActions.append(larva.train(OVERLORD))
-                elif self.droneUp and self.units(DRONE).amount + self.already_pending(DRONE) < 80 and self.units(DRONE).amount + self.already_pending(DRONE) < 22 * self.townhalls.amount:
+            larvae = self.units(LARVA)
+            if self.supply_left < 10 and self.already_pending(OVERLORD) < 2 and (self.droneUp or self.buildArmy):
+                    i = self.already_pending(OVERLORD)
+                    while i < 2:
+                        if self.can_afford(OVERLORD):
+                            await self.morphZerg(OVERLORD)
+                            i += 1
+                        else:
+                            break
+            if self.droneUp and self.units(DRONE).amount + self.already_pending(DRONE) < 80 and self.units(DRONE).amount + self.already_pending(DRONE) < 22 * self.townhalls.amount:
+                for larva in self.units(LARVA):
                     if self.can_afford(DRONE):
-                        self.combinedActions.append(larva.train(DRONE))
-                elif self.buildArmy or self.units(DRONE).amount + self.already_pending(DRONE) >= 80 or self.units(DRONE).amount + self.already_pending(DRONE) >= 22 * self.townhalls.amount:
-                    # if self.units(SPAWNINGPOOL).exists:
-                    #     if self.units(HYDRALISKDEN).exists:
-                    #         if(self.units(ZERGLING).amount + self.already_pending(ZERGLING)) + (self.units(BANELING).amount + self.units(BANELINGCOCOON).amount) > (self.units(HYDRALISK).amount + self.already_pending(HYDRALISK)) * 3:
-                    #             await self.morphZerg(HYDRALISK)
-                    #         else:
-                    #             await self.morphZerg(ZERGLING)
-                    #     else:
-                    #         await self.morphZerg(ZERGLING)
-                    if self.units(GREATERSPIRE).exists:
+                        if self.units(DRONE).amount + self.already_pending(DRONE) < 80 and self.units(DRONE).amount + self.already_pending(DRONE) < 22 * self.townhalls.amount:
+                            await self.morphZerg(DRONE)
+                    else:
+                        break
+            if self.already_pending(DRONE) < 1 and self.units(DRONE).amount + self.already_pending(DRONE) < 80 and self.units(DRONE).amount + self.already_pending(DRONE) < 22 * self.townhalls.amount:
+                await self.morphZerg(DRONE)
+            if self.buildArmy or self.units(DRONE).amount + self.already_pending(DRONE) >= 80 or self.units(DRONE).amount + self.already_pending(DRONE) >= 22 * self.townhalls.amount:
+                # if self.units(SPAWNINGPOOL).exists:
+                #     if self.units(HYDRALISKDEN).exists:
+                #         if(self.units(ZERGLING).amount + self.already_pending(ZERGLING)) + (self.units(BANELING).amount + self.units(BANELINGCOCOON).amount) > (self.units(HYDRALISK).amount + self.already_pending(HYDRALISK)) * 3:
+                #             await self.morphZerg(HYDRALISK)
+                #         else:
+                #             await self.morphZerg(ZERGLING)
+                #     else:
+                #         await self.morphZerg(ZERGLING)
+                if self.units(GREATERSPIRE).exists:
+                    for larva in self.units(LARVA):
                         if self.units(ZERGLING).amount + self.already_pending(ZERGLING) < 20:
                             await self.morphZerg(ZERGLING)
                         else:
                             await self.morphZerg(CORRUPTOR)
-                    elif self.vespene < 150 and self.minerals > 1000:
-                        if self.can_afford(ZERGLING):
-                            self.combinedActions.append(larva.train(ZERGLING))
+                else:
+                    if self.units(HYDRALISKDEN).ready.exists:
+                            if self.vespene < 100 and self.minerals > 1500:
+                                for larva in self.units(LARVA):
+                                    await self.morphZerg(ZERGLING)
+                                    
+                            if self.lurkerGood() or self.units(HYDRALISK).amount < 5:
+                                for larva in self.units(LARVA):
+                                    await self.morphZerg(HYDRALISK)
 
-                    elif self.units(HYDRALISKDEN).exists:
-                        if self.lurkerGood() or self.units(HYDRALISK).amount < 5:
-                            if self.can_afford(HYDRALISK):
-                                self.combinedActions.append(larva.train(HYDRALISK))
-
-                    elif self.units(SPAWNINGPOOL).exists:
-                        if self.can_afford(ZERGLING):
-                            self.combinedActions.append(larva.train(ZERGLING))
+                    else:
+                        if self.units(SPAWNINGPOOL).exists:
+                            for larva in self.units(LARVA):
+                                await self.morphZerg(ZERGLING)
 
     async def morphZerg(self, unit):
-        larva = self.units(LARVA).random
-        if self.can_afford(unit):
-            self.combinedActions.append(larva.train(unit))
+        if self.units(LARVA).exists:
+            larva = self.units(LARVA).random
+            if self.can_afford(unit):
+                self.combinedActions.append(larva.train(unit))
 
     async def buildStuff(self):
         if self.townhalls.exists:
@@ -252,8 +740,8 @@ class Overmind(sc2.BotAI):
                     await self.buildZerg(LURKERDENMP)
                 if self.get_game_time() > 550 and self.units(LAIR).exists and not self.units(INFESTATIONPIT).exists:
                     await self.buildZerg(INFESTATIONPIT)
-                if self.units(HIVE).exists and self.units(GREATERSPIRE).amount + self.already_pending(GREATERSPIRE) < 1 and not self.units(SPIRE).exists:
-                    await self.buildZerg(SPIRE)
+                # if self.units(HIVE).exists and self.units(GREATERSPIRE).amount + self.already_pending(GREATERSPIRE) < 1 and not self.units(SPIRE).exists:
+                #     await self.buildZerg(SPIRE)
 
     async def buildZerg(self, building):
         if self.townhalls.exists:
@@ -349,7 +837,7 @@ class Overmind(sc2.BotAI):
                     hq = self.townhalls.random
                     if self.buildMore:
                         vaspenes = self.state.vespene_geyser.closer_than(15.0, hq)
-                        if (self.units(EXTRACTOR).amount / (self.townhalls.amount * self.gases)) < 1:
+                        if (self.units(EXTRACTOR).amount / (self.townhalls.amount * self.gases)) < 1 or self.townhalls.amount >= 4:
                             for vaspene in vaspenes:
                                 if not self.can_afford(EXTRACTOR):
                                     break
@@ -357,14 +845,15 @@ class Overmind(sc2.BotAI):
                                 if worker is None:
                                     break
                                 if not self.units(EXTRACTOR).closer_than(1.0, vaspene).exists:
+                                    if not self.already_pending(EXTRACTOR):
                                         self.combinedActions.append(worker.build(EXTRACTOR, vaspene))
 
     async def getGases(self):
         if self.get_game_time() > 180:
-            if self.minerals > 0 and self.vespene > 0:
-                if (self.minerals / self.vespene) >= 3 and self.gases <= 2:
+            if self.minerals > 100 and self.vespene > 0:
+                if (self.minerals / self.vespene) >= 4 and self.gases <= 2:
                     self.gases += 0.25
-                elif (self.vespene / self.minerals) >= 3 and self.gases >= 0.5:
+                elif (self.vespene / self.minerals) <= 2 and self.gases >= 0.5:
                     self.gases += -0.25
 
     async def getLair(self):
@@ -372,10 +861,7 @@ class Overmind(sc2.BotAI):
             if self.units(HATCHERY).idle.exists:
                 hq = self.units(HATCHERY).idle.random
                 if not await self.hasLair() and self.vespene >= 100:
-                    if not (self.units(HIVE).exists or self.units(LAIR).exists):
-                        self.droneUp = False
-                        self.buildArmy = False
-                        self.buildMore = False
+                    if not (self.units(HIVE).exists or self.units(LAIR).exists) and self.lingSpeed:
                         if self.can_afford(LAIR):
                             self.combinedActions.append(hq.build(LAIR))
 
@@ -508,7 +994,7 @@ class Overmind(sc2.BotAI):
                         q.is_idle or len(q.orders) == 1 and q.orders[0].ability.id in [AbilityId.MOVE]))
 
         # update creep coverage data and points where creep still needs to go
-        if not hasattr(self, "positionsWithCreep") or self.iteration % self.creepSpreadInterval * 10 == 0:
+        if not hasattr(self, "positionsWithCreep") or self.iteration % self.creepSpreadInterval == 0:
             posWithCreep, posWithoutCreep = await self.updateCreepCoverage()
             totalPositions = len(posWithCreep) + len(posWithoutCreep)
             self.creepCoverage = len(posWithCreep) / totalPositions
@@ -777,25 +1263,26 @@ class Overmind(sc2.BotAI):
 
 
     async def checkSupplies(self):
+        checkAmount = 1.2
+        mySupply = 0
+        enemySupply = 0
+        for unit in self.armyUnits:
+            mySupply += unit._type_data._proto.food_required
+
+        for tags, supply in self.enemies.items():
+            enemySupply += supply
+        # print("Theirs: " + str(enemySupply))
+        # print("Mine: " + str(mySupply * checkAmount))
         if self.get_game_time() < 400:
-            checkAmount = 1.2
-            mySupply = 0
-            enemySupply = 0
-            for unit in self.armyUnits:
-                mySupply += unit._type_data._proto.food_required
+            checkAmount = 2.0
+        if self.get_game_time() > 300:
+            checkAmount = 1.5
+        elif self.get_game_time() > 200:
+            checkAmount = 1.35
 
-            for tags, supply in self.enemies.items():
-                enemySupply += supply
-            # print("Theirs: " + str(enemySupply))
-            # print("Mine: " + str(mySupply * checkAmount))
-            if self.get_game_time() > 300:
-                checkAmount = 1.5
-            elif self.get_game_time() > 200:
-                checkAmount = 1.35
-
-            if enemySupply > mySupply * checkAmount:
-                self.buildArmy = True
-                self.droneUp = False
+        if enemySupply > mySupply * checkAmount:
+            self.buildArmy = True
+            self.droneUp = False
 
 
 
@@ -1026,6 +1513,120 @@ class Overmind(sc2.BotAI):
                                 else:
                                     self.combinedActions.append(w.gather(mf))
 
+    async def distribute_workers_cheese(self, performanceHeavy=True, onlySaturateGas=False):
+        # expansion_locations = self.expansion_locations
+        # owned_expansions = self.owned_expansions
+        if self.townhalls.exists:
+            for w in self.workers.idle:
+                th = self.townhalls.closest_to(w)
+                mfs = self.state.mineral_field.closer_than(10, th)
+                if mfs:
+                    mf = mfs.closest_to(w)
+                    if mf.tag != self.scouter:
+                        self.combinedActions.append(w.gather(mf))
+
+        mineralTags = [x.tag for x in self.state.units.mineral_field]
+        # gasTags = [x.tag for x in self.state.units.vespene_geyser]
+        geyserTags = [x.tag for x in self.geysers]
+
+        workerPool = self.units & []
+        workerPoolTags = set()
+
+        # find all geysers that have surplus or deficit
+        deficitGeysers = {}
+        surplusGeysers = {}
+        for g in self.geysers.filter(lambda x: x.vespene_contents > 0):
+            # only loop over geysers that have still gas in them
+            deficit = g.ideal_harvesters - g.assigned_harvesters
+            if deficit > 0:
+                deficitGeysers[g.tag] = {"unit": g, "deficit": deficit}
+            elif deficit < 0:
+                surplusWorkers = self.workers.closer_than(10, g).filter(
+                    lambda w: w not in workerPoolTags and len(w.orders) == 1 and w.orders[0].ability.id in [
+                        AbilityId.HARVEST_GATHER] and w.orders[0].target in geyserTags)
+                # workerPool.extend(surplusWorkers)
+                for i in range(-deficit):
+                    if surplusWorkers.amount > 0:
+                        w = surplusWorkers.pop()
+                        workerPool.append(w)
+                        workerPoolTags.add(w.tag)
+                surplusGeysers[g.tag] = {"unit": g, "deficit": deficit}
+
+        # find all townhalls that have surplus or deficit
+        deficitTownhalls = {}
+        surplusTownhalls = {}
+        if not onlySaturateGas:
+            for th in self.townhalls:
+                deficit = th.ideal_harvesters - th.assigned_harvesters
+                if deficit > 0:
+                    deficitTownhalls[th.tag] = {"unit": th, "deficit": deficit}
+                elif deficit < 0:
+                    surplusWorkers = self.workers.closer_than(10, th).filter(
+                        lambda w: w.tag not in workerPoolTags and len(w.orders) == 1 and w.orders[0].ability.id in [
+                            AbilityId.HARVEST_GATHER] and w.orders[0].target in mineralTags)
+                    # workerPool.extend(surplusWorkers)
+                    for i in range(-deficit):
+                        if surplusWorkers.amount > 0:
+                            w = surplusWorkers.pop()
+                            workerPool.append(w)
+                            workerPoolTags.add(w.tag)
+                    surplusTownhalls[th.tag] = {"unit": th, "deficit": deficit}
+
+            if all([len(deficitGeysers) == 0, len(surplusGeysers) == 0,
+                    len(surplusTownhalls) == 0 or deficitTownhalls == 0]):
+                # cancel early if there is nothing to balance
+                return
+
+        # check if deficit in gas less or equal than what we have in surplus, else grab some more workers from surplus bases
+        deficitGasCount = sum(
+            gasInfo["deficit"] for gasTag, gasInfo in deficitGeysers.items() if gasInfo["deficit"] > 0)
+        surplusCount = sum(-gasInfo["deficit"] for gasTag, gasInfo in surplusGeysers.items() if gasInfo["deficit"] < 0)
+        surplusCount += sum(-thInfo["deficit"] for thTag, thInfo in surplusTownhalls.items() if thInfo["deficit"] < 0)
+
+        if deficitGasCount - surplusCount > 0:
+            # grab workers near the gas who are mining minerals
+            for gTag, gInfo in deficitGeysers.items():
+                if workerPool.amount >= deficitGasCount:
+                    break
+                workersNearGas = self.workers.closer_than(10, gInfo["unit"]).filter(
+                    lambda w: w.tag not in workerPoolTags and len(w.orders) == 1 and w.orders[0].ability.id in [
+                        AbilityId.HARVEST_GATHER] and w.orders[0].target in mineralTags)
+                while workersNearGas.amount > 0 and workerPool.amount < deficitGasCount:
+                    w = workersNearGas.pop()
+                    workerPool.append(w)
+                    workerPoolTags.add(w.tag)
+
+        # now we should have enough workers in the pool to saturate all gases, and if there are workers left over, make them mine at townhalls that have mineral workers deficit
+        for gTag, gInfo in deficitGeysers.items():
+            if performanceHeavy:
+                # sort furthest away to closest (as the pop() function will take the last element)
+                workerPool.sort(key=lambda x: x.distance_to(gInfo["unit"]), reverse=True)
+            for i in range(gInfo["deficit"]):
+                if workerPool.amount > 0:
+                    w = workerPool.pop()
+                    if w.tag != self.scouter:
+                        if len(w.orders) == 1 and w.orders[0].ability.id in [AbilityId.HARVEST_RETURN]:
+                            self.combinedActions.append(w.gather(gInfo["unit"], queue=True))
+                        else:
+                            self.combinedActions.append(w.gather(gInfo["unit"]))
+
+        if not onlySaturateGas:
+            # if we now have left over workers, make them mine at bases with deficit in mineral workers
+            for thTag, thInfo in deficitTownhalls.items():
+                if performanceHeavy:
+                    # sort furthest away to closest (as the pop() function will take the last element)
+                    workerPool.sort(key=lambda x: x.distance_to(thInfo["unit"]), reverse=True)
+                for i in range(thInfo["deficit"]):
+                    if workerPool.amount > 0:
+                        w = workerPool.pop()
+                        if w:
+                            if w.tag != self.scouter:
+                                mf = self.state.mineral_field.closer_than(10, thInfo["unit"]).closest_to(w)
+                                if len(w.orders) == 1 and w.orders[0].ability.id in [AbilityId.HARVEST_RETURN]:
+                                    self.combinedActions.append(w.gather(mf, queue=True))
+                                else:
+                                    self.combinedActions.append(w.gather(mf))
+
     def getPositionsAroundUnit(self, unit, minRange=0, maxRange=500, stepSize=1, locationAmount=32):
         # e.g. locationAmount=4 would only consider 4 points: north, west, east, south
         assert isinstance(unit, (Unit, Point2, Point3))
@@ -1046,6 +1647,34 @@ class Overmind(sc2.BotAI):
         self.exactExpansionLocations = []
         for loc in self.expansion_locations.keys():
             self.exactExpansionLocations.append(await self.find_placement(HATCHERY, loc, minDistanceToResources=5.5, placement_step=1))  # TODO: change mindistancetoresource so that a hatch still has room to be built
+
+    def inPathingGrid(self, pos):
+        # returns True if it is possible for a ground unit to move to pos - doesnt seem to work on ramps or near edges
+        assert isinstance(pos, (Point2, Point3, Unit))
+        pos = pos.position.to2.rounded
+        return self._game_info.pathing_grid[(pos)] != 0
+
+    # stolen and modified from position.py
+    def neighbors4(self, position, distance=1):
+        p = position
+        d = distance
+        return {
+            Point2((p.x - d, p.y)),
+            Point2((p.x + d, p.y)),
+            Point2((p.x, p.y - d)),
+            Point2((p.x, p.y + d)),
+        }
+
+    # stolen and modified from position.py
+    def neighbors8(self, position, distance=1):
+        p = position
+        d = distance
+        return self.neighbors4(position, distance) | {
+            Point2((p.x - d, p.y - d)),
+            Point2((p.x - d, p.y + d)),
+            Point2((p.x + d, p.y - d)),
+            Point2((p.x + d, p.y + d)),
+        }
 
 # run_game(maps.get("AcidPlantLE"), [
 #     # Human(Race.Zerg),
