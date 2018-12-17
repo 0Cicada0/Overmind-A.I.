@@ -25,22 +25,132 @@ class Overmind(sc2.BotAI):
                                 DRONEBURROWED, ADEPTPHASESHIFT]
         self.want = "drone"
         self.workers_away = []
+        self.game_time = 0
+        self.ling_speed = False
+        self.melee_upgrades = 0
+        self.armor_upgrades = 0
+
 
     async def on_step(self, iteration):
+        self.game_time = self.get_game_time() / 60
+        print(self.game_time)
         self.ground_enemies = self.known_enemy_units.not_flying.not_structure
         await self.do_actions(self.combinedActions)
         self.combinedActions = []
         self.iteration = iteration
         if not iteration:
             self.split_workers()
-        # self.set_game_step()
+        self.set_game_step()
         await self.remember_units()
         await self.train_units()
         await self.distribute_workers()
         await self.defence()
+        await self.macro_decisions()
+        await self.buildExtractor()
 
 
     ###FUNCTIONS##
+    async def getLair(self):
+        if self.units(SPAWNINGPOOL).ready.exists:
+            if self.units(HATCHERY).idle.exists:
+                hq = self.units(HATCHERY).idle.random
+                if not await self.hasLair() and self.vespene >= 100:
+                    if not (self.units(HIVE).exists or self.units(LAIR).exists):
+                        self.droneUp = False
+                        self.buildArmy = False
+                        self.buildMore = False
+                    if not (self.units(HIVE).exists or self.units(LAIR).exists) and self.lingSpeed:
+                        if self.can_afford(LAIR):
+                            self.combinedActions.append(hq.build(LAIR))
+    async def buildExtractor(self):
+        if not self.already_pending(EXTRACTOR):
+            if self.game_time > 1:
+                if self.townhalls.exists:
+                    hq = self.townhalls.random
+                    vaspenes = self.state.vespene_geyser.closer_than(15.0, hq)
+                    if self.townhalls.amount < 4:
+                        if (self.units(EXTRACTOR).amount / self.townhalls.amount) < 1:
+                            vaspene = vaspenes.random
+                            if self.can_afford(EXTRACTOR):
+                                worker = self.select_build_worker(vaspene.position)
+                                if worker:
+                                    if not self.units(EXTRACTOR).closer_than(1.0, vaspene).exists:
+                                        if not self.already_pending(EXTRACTOR):
+                                            self.combinedActions.append(worker.build(EXTRACTOR, vaspene))
+                    if self.townhalls.amount >= 4:
+                        if (self.units(EXTRACTOR).amount / self.townhalls.amount) < 1:
+                            vaspene = vaspenes.random
+                            if self.can_afford(EXTRACTOR):
+                                worker = self.select_build_worker(vaspene.position)
+                                if worker:
+                                    if not self.units(EXTRACTOR).closer_than(1.0, vaspene).exists:
+                                        if not self.already_pending(EXTRACTOR):
+                                            self.combinedActions.append(worker.build(EXTRACTOR, vaspene))
+
+
+    async def macro_decisions(self):
+        if self.townhalls.exists:
+            if not self.units(SPAWNINGPOOL).exists:
+                if self.can_afford(SPAWNINGPOOL) and not self.already_pending(SPAWNINGPOOL):
+                    ws = self.workers.gathering
+                    if ws:
+                        w = ws.furthest_to(ws.center)
+                        loc = await self.find_placement(UnitTypeId.SPAWNINGPOOL, self.townhalls.random.position, placement_step=4)
+                        self.combinedActions.append(w.build(SPAWNINGPOOL, loc))
+
+            elif not self.ling_speed:
+                if self.units(SPAWNINGPOOL).exists:
+                    rw = self.units(SPAWNINGPOOL).first
+                    if rw.noqueue:
+                        if await self.has_ability(RESEARCH_ZERGLINGMETABOLICBOOST, rw):
+                            if self.can_afford(RESEARCH_ZERGLINGMETABOLICBOOST):
+                                await self.do(rw(RESEARCH_ZERGLINGMETABOLICBOOST))
+                                self.ling_speed = True
+
+            elif not self.units(BANELINGNEST).exists:
+                if self.can_afford(BANELINGNEST) and not self.already_pending(BANELINGNEST):
+                    ws = self.workers.gathering
+                    if ws:
+                        w = ws.furthest_to(ws.center)
+                        loc = await self.find_placement(UnitTypeId.BANELINGNEST, self.townhalls.random.position,
+                                                        placement_step=4)
+                        self.combinedActions.append(w.build(BANELINGNEST, loc))
+            elif not (self.units(LAIR).exists or self.units(HIVE).exists):
+                if self.units(HATCHERY).idle.exists:
+                    hq = self.units(HATCHERY).idle.random
+                    if not await self.hasLair() and self.vespene >= 100:
+                        if not (self.units(HIVE).exists or self.units(LAIR).exists):
+                            if self.can_afford(LAIR):
+                                self.combinedActions.append(hq.build(LAIR))
+            elif self.units(EVOLUTIONCHAMBER).amount < 2:
+                if self.can_afford(EVOLUTIONCHAMBER) and self.already_pending(EVOLUTIONCHAMBER) < 2:
+                    ws = self.workers.gathering
+                    if ws:
+                        w = ws.furthest_to(ws.center)
+                        loc = await self.find_placement(UnitTypeId.EVOLUTIONCHAMBER, self.townhalls.random.position,
+                                                        placement_step=4)
+                        self.combinedActions.append(w.build(EVOLUTIONCHAMBER, loc))
+            elif self.melee_upgrades == 0:
+                if self.units(EVOLUTIONCHAMBER).exists:
+                    for evochamber in self.units(EVOLUTIONCHAMBER).ready:
+                        if evochamber.noqueue:
+                            if self.has_ability(ZERGMELEEWEAPONSLEVEL1, evochamber):
+                                if self.can_afford(ZERGMELEEWEAPONSLEVEL1):
+                                    self.combinedActions.append(evochamber(ZERGMELEEWEAPONSLEVEL1))
+            elif self.armor_upgrades == 0:
+                if self.units(EVOLUTIONCHAMBER).exists:
+                    for evochamber in self.units(EVOLUTIONCHAMBER).ready:
+                        if evochamber.noqueue:
+                            if await self.has_ability(ZERGGROUNDARMORSLEVEL1, evochamber):
+                                if self.can_afford(ZERGGROUNDARMORSLEVEL1):
+                                    self.combinedActions.append(evochamber(ZERGGROUNDARMORSLEVEL1))
+            # elif self.melee_upgrades == 1:
+            # elif self.armor_upgrades == 1:
+            # elif not self.units(INFESTATIONPIT).exists:
+            # elif not self.units(SPIRE).exists:
+            # elif not self.units(HIVE).exists:
+
+
     async def defence(self):
         enemiesCloseToTh = None
         for th in self.townhalls.ready:
@@ -48,22 +158,21 @@ class Overmind(sc2.BotAI):
                                                                                                           th.position)
         if enemiesCloseToTh:
             if self.workers.closer_than(15, enemiesCloseToTh.random.position).amount > enemiesCloseToTh.amount:
-                i = 0
+                i = len(self.workers_away)
                 for worker in self.workers.closer_than(15, enemiesCloseToTh.random.position):
                     if i <= enemiesCloseToTh.amount:
                         target = enemiesCloseToTh.random
                         self.combinedActions.append(worker.attack(target.position))
-                        self.workers_away.append(worker)
+                        self.workers_away.append(worker.tag)
                         i += 1
 
         for h in self.townhalls:
             for worker in self.workers_away:
                 w = self.workers.find_by_tag(worker)
                 if w:
-                    if w.distance_to(h) > 30:
-                        if worker.tag in self.workers_away:
-                            self.workers_away.remove(w.tag)
-                            self.combinedActions.append(w.move(self.start_location))
+                    if w.distance_to(h) > 45:
+                        self.workers_away.remove(worker)
+                        self.combinedActions.append(w.move(self.start_location))
 
     async def train_units(self):
         larvae = self.units(LARVA)
@@ -99,6 +208,8 @@ class Overmind(sc2.BotAI):
             del self.unit_memory[unit_tag]
         if unit_tag in self.structure_memory:
             del self.unit_memory[unit_tag]
+        if unit_tag in self.workers_away:
+            self.workers_away.remove(unit_tag)
 
     ######USE FUNCTIONS######
     def getHighestDistance(self, unit1, unit2):
@@ -382,13 +493,13 @@ class Overmind(sc2.BotAI):
         """It sets the interval of frames that it will take to make the actions, depending of the game situation"""
         if self.ground_enemies:
             if len(self.ground_enemies) >= 15:
-                self.client.game_step = 2
+                self._client.game_step = 2
             elif len(self.ground_enemies) >= 5:
-                self.client.game_step = 4
+                self._client.game_step = 4
             else:
-                self.client.game_step = 6
+                self._client.game_step = 6
         else:
-            self.client.game_step = 8
+            self._client.game_step = 8
 
 # run_game(maps.get("AcidPlantLE"), [
 #     # Human(Race.Zerg),
