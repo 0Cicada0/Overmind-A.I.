@@ -61,9 +61,34 @@ class Overmind(sc2.BotAI):
         await self.doQueenInjects(iteration)
         self.assignQueen()
         await self.doCreepSpread()
-
+        await self.micro_controller()
+        self.handleBuildingCancelMicro()
 
     ###FUNCTIONS##
+    def handleBuildingCancelMicro(self):
+        for b in self.units.structure.not_ready.filter(
+                lambda x: x.health_percentage + 0.05 < x.build_progress and x.health_percentage < 0.1):
+            self.combinedActions.append(b(CANCEL))
+
+    async def micro_controller(self):
+        army_units = self.units(ZERGLING) | self.units(BANELING)
+        ###Defence###
+        for th in self.townhalls:
+            if self.game_time < 15:
+                enemiesCloseToTh = self.known_enemy_units.closer_than(30, th.position)
+            else:
+                enemiesCloseToTh = self.known_enemy_units.closer_than(15, th.position)
+
+            if enemiesCloseToTh:
+                for unit in army_units:
+                    target = enemiesCloseToTh.closest_to(unit)
+                    if target.distance_to(unit) < unit.ground_range:
+                        print("target")
+                        self.combinedActions.append(unit.attack(target))
+                    else:
+                        print("position")
+                        self.combinedActions.append(unit.attack(target.position))
+
     async def updateCreepCoverage(self, stepSize=None):
         if stepSize is None:
             stepSize = self.creepTargetDistance
@@ -219,7 +244,7 @@ class Overmind(sc2.BotAI):
         if len(validPlacements) > 0:
             return validPlacements
         return None
-    
+
     def assignQueen(self):
         maxAmountInjectQueens = self.townhalls.amount
         # # list of all alive queens and bases, will be used for injecting
@@ -330,7 +355,7 @@ class Overmind(sc2.BotAI):
                     hq = self.townhalls.random
                     vaspenes = self.state.vespene_geyser.closer_than(15.0, hq)
                     if self.townhalls.amount < 4:
-                        if (self.units(EXTRACTOR).amount / self.townhalls.amount) < 1:
+                        if (self.units(EXTRACTOR).amount / self.townhalls.amount) < 0.5:
                             vaspene = vaspenes.random
                             if self.can_afford(EXTRACTOR):
                                 worker = self.select_build_worker(vaspene.position)
@@ -339,7 +364,7 @@ class Overmind(sc2.BotAI):
                                         if not self.already_pending(EXTRACTOR):
                                             self.combinedActions.append(worker.build(EXTRACTOR, vaspene))
                     if self.townhalls.amount >= 4:
-                        if (self.units(EXTRACTOR).amount / self.townhalls.amount) < 1.5:
+                        if (self.units(EXTRACTOR).amount / self.townhalls.amount) < 1:
                             vaspene = vaspenes.random
                             if self.can_afford(EXTRACTOR):
                                 worker = self.select_build_worker(vaspene.position)
@@ -356,7 +381,6 @@ class Overmind(sc2.BotAI):
                                     if not self.units(EXTRACTOR).closer_than(1.0, vaspene).exists:
                                         if not self.already_pending(EXTRACTOR):
                                             self.combinedActions.append(worker.build(EXTRACTOR, vaspene))
-
 
     async def macro_decisions(self):
         enemiesNearby = 0
@@ -381,7 +405,8 @@ class Overmind(sc2.BotAI):
                         ws = self.workers.gathering
                         if ws:
                             w = ws.furthest_to(ws.center)
-                            loc = await self.find_placement(UnitTypeId.SPAWNINGPOOL, self.townhalls.random.position, placement_step=4)
+                            loc = await self.find_placement(UnitTypeId.SPAWNINGPOOL, self.townhalls.random.position,
+                                                            placement_step=4)
                             self.combinedActions.append(w.build(SPAWNINGPOOL, loc))
 
                 elif not self.ling_speed:
@@ -401,7 +426,8 @@ class Overmind(sc2.BotAI):
                             loc = await self.find_placement(UnitTypeId.BANELINGNEST, self.townhalls.random.position,
                                                             placement_step=4)
                             self.combinedActions.append(w.build(BANELINGNEST, loc))
-                elif not (self.units(LAIR).exists or self.units(HIVE).exists or await self.hasLair() or await self.hasHive()):
+                elif not (self.units(LAIR).exists or self.units(
+                        HIVE).exists or await self.hasLair() or await self.hasHive()):
                     if self.units(HATCHERY).idle.exists:
                         hq = self.units(HATCHERY).idle.random
                         if not await self.hasLair() and self.vespene >= 100:
@@ -436,7 +462,8 @@ class Overmind(sc2.BotAI):
                             self.combinedActions.append(w.build(INFESTATIONPIT, loc))
 
                 elif not self.units(SPIRE).exists and not self.units(GREATERSPIRE).exists:
-                    if self.can_afford(SPIRE) and not self.already_pending(SPIRE) and not self.already_pending(GREATERSPIRE):
+                    if self.can_afford(SPIRE) and not self.already_pending(SPIRE) and not self.already_pending(
+                            GREATERSPIRE):
                         ws = self.workers.gathering
                         if ws:
                             w = ws.furthest_to(ws.center)
@@ -462,7 +489,8 @@ class Overmind(sc2.BotAI):
                                     self.crack_ling = True
 
                 elif not self.units(GREATERSPIRE).exists:
-                    if self.units(HIVE).exists and self.units(GREATERSPIRE).amount + self.already_pending(GREATERSPIRE) < 1:
+                    if self.units(HIVE).exists and self.units(GREATERSPIRE).amount + self.already_pending(
+                            GREATERSPIRE) < 1:
                         if self.units(SPIRE).ready.idle.exists:
                             if self.can_afford(GREATERSPIRE):
                                 self.combinedActions.append(
@@ -498,7 +526,8 @@ class Overmind(sc2.BotAI):
                                 if self.can_afford(upgrade_armor_id):
                                     await self.do(evochamber(upgrade_armor_id))
         ################################################################################################################
-        army_units = self.units(ZERGLING) | self.units(BANELING) | self.units(CORRUPTOR) | self.units(BROODLORD) | self.units(QUEEN)
+        army_units = self.units(ZERGLING) | self.units(BANELING) | self.units(CORRUPTOR) | self.units(
+            BROODLORD) | self.units(QUEEN)
         allowed_supply = 5
         mySupply = 0
         enemySupply = 0
@@ -518,8 +547,6 @@ class Overmind(sc2.BotAI):
 
         if mySupply > enemySupply:
             self.stop_droning = False
-
-
 
     async def defence(self):
         enemiesNearby = None
@@ -588,10 +615,12 @@ class Overmind(sc2.BotAI):
                             self.combinedActions.append(larva.train(ZERGLING))
 
             for ling in self.units(ZERGLING).ready:
-                enemiesNearby = self.known_enemy_units.filter(lambda unit: unit.type_id not in self.units_to_ignore).closer_than(30, ling)
+                enemiesNearby = self.known_enemy_units.filter(
+                    lambda unit: unit.type_id not in self.units_to_ignore).closer_than(30, ling)
                 if not enemiesNearby:
                     if self.units(ZERGLING).amount > 1 and self.units(BANELINGNEST).exists:
-                        if ((self.units(BANELING).amount + self.units(BANELINGCOCOON).amount) / self.units(ZERGLING).amount) < 0.3:
+                        if ((self.units(BANELING).amount + self.units(BANELINGCOCOON).amount) / self.units(
+                                ZERGLING).amount) < 0.3:
                             if self.vespene > 25 and self.minerals > 25:
                                 await self.do(ling(MORPHZERGLINGTOBANELING_BANELING))
 
@@ -602,21 +631,18 @@ class Overmind(sc2.BotAI):
                             if self.can_afford(QUEEN) and self.units(QUEEN).amount < 10:
                                 self.combinedActions.append(hq.train(QUEEN))
 
-
-
     async def remember_units(self):
-        for unit in self.known_enemy_units.not_structure.filter(lambda unit: (unit.type_id not in self.units_to_ignore) and (unit.tag not in self.unit_memory)):
+        for unit in self.known_enemy_units.not_structure.filter(
+                lambda unit: (unit.type_id not in self.units_to_ignore) and (unit.tag not in self.unit_memory)):
             self.unit_memory[unit.tag] = unit.type_id
         for building in self.known_enemy_units.structure:
             if building.tag not in self.structure_memory:
                 self.structure_memory[building.tag] = building.type_id
 
-
     def split_workers(self):
         """Split the workers on the beginning """
         for drone in self.workers:
             self.combinedActions.append(drone.gather(self.state.mineral_field.closest_to(drone)))
-
 
     async def on_unit_destroyed(self, unit_tag):
         if unit_tag in self.unit_memory:
@@ -744,7 +770,7 @@ class Overmind(sc2.BotAI):
             await self.build(townhall, near=location, max_distance=max_distance, random_alternative=False,
                              placement_step=1)
 
-    async def distribute_workers(self, performanceHeavy=True, onlySaturateGas=False):
+    async def distribute_workers(self, performanceHeavy=False, onlySaturateGas=False):
         # expansion_locations = self.expansion_locations
         # owned_expansions = self.owned_expansions
         if self.townhalls.exists:
@@ -915,6 +941,11 @@ class Overmind(sc2.BotAI):
                 self._client.game_step = 6
         else:
             self._client.game_step = 8
+
+    def enemyRace(self):
+        self.enemy_id = 3 - self.player_id
+        return Race(self._game_info.player_races[self.enemy_id])
+
 
 # run_game(maps.get("AcidPlantLE"), [
 #     # Human(Race.Zerg),
